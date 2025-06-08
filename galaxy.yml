@@ -1,0 +1,47 @@
+# Ansible Galaxy metadata for infra2csv collection
+namespace: crusty_rs
+name: infra2csv
+version: 1.0.0
+
+readme: README.md
+authors:
+  - Infrastructure Team <infrastructure@example.com>
+
+description: >
+  Robust infrastructure data collection to CSV for analytics and reporting.
+  Never fails on weird distributions - handles missing commands gracefully.
+
+license:
+  - MIT
+
+tags:
+  - infrastructure
+  - monitoring
+  - inventory
+  - csv
+  - reporting
+  - hardware
+  - network
+  - storage
+  - security
+  - analytics
+  - powerbi
+  - compliance
+
+dependencies: {}
+
+repository: https://github.com/crusty-rs/ansible-collection-infra2csv
+documentation: https://github.com/crusty-rs/ansible-collection-infra2csv/wiki
+homepage: https://github.com/crusty-rs/ansible-collection-infra2csv
+issues: https://github.com/crusty-rs/ansible-collection-infra2csv/issues
+
+build_ignore:
+  - .gitignore
+  - .git
+  - .github
+  - .vscode
+  - '*.pyc'
+  - __pycache__
+  - tests/output
+  - docs/build
+
