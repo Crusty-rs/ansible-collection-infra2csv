@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Network Facts Collection Module
-Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 Network interface scanner. Gets MACs, speeds, states, MTUs.
 Works without ip command using /sys/class/net. Adaptable AF.
@@ -40,7 +40,7 @@ options:
         type: bool
         default: false
 author:
-    - Yasir Hamahdi Alsahli (@crusty.rusty.engine@gmail.com)
+    - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''

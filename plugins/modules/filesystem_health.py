@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Filesystem Health Collection Module
-Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 Filesystem maintenance tracker. When was last fsck? Does it need one?
 Prevents those "checking disk" surprises on reboot. Stay proactive.
@@ -37,7 +37,7 @@ options:
         type: bool
         default: true
 author:
-    - Yasir Hamahdi Alsahli (@crusty.rusty.engine@gmail.com)
+    - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 User Facts Collection Module  
-Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 User accounts, cron jobs, sudo access. The who's who of your system.
 Tracks scheduled tasks and privilege levels. Security loves this data.
@@ -41,7 +41,7 @@ options:
         type: bool
         default: false
 author:
-    - Yasir Hamahdi Alsahli (@crusty.rusty.engine@gmail.com)
+    - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''

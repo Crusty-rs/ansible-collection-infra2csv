@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Storage Facts Collection Module
-Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 Gets storage info two ways: filesystem usage (df) or block devices (lsblk).
 Handles LVM, NFS, weird mounts. Always delivers clean data.
@@ -47,7 +47,7 @@ options:
         type: bool
         default: false
 author:
-    - Yasir Hamahdi Alsahli (@crusty.rusty.engine@gmail.com)
+    - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''

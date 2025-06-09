@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Hardware Facts Collection Module
-Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 Grabs all the hardware specs. CPU, RAM, disks - the whole setup.
 Works everywhere: bare metal, VMs, containers. No cap.
@@ -38,7 +38,7 @@ requirements:
     - Linux operating system
     - Commands: lscpu, dmidecode (optional), who, lsblk
 author:
-    - Yasir Hamahdi Alsahli (@crusty.rusty.engine@gmail.com)
+    - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''
@@ -322,7 +322,5 @@ def main():
         # Something went wrong? Be honest about it
         module.fail_json(msg=f"Failed to collect hardware data: {str(e)}")
 
-
 if __name__ == '__main__':
     main()
-

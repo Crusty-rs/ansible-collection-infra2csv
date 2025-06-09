@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Security Baseline Collection Module
-Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 Security posture snapshot. SELinux, firewall, SSH config, sudo users.
 Compliance teams need this. Auditors love this. Keep your systems tight.
@@ -35,7 +35,7 @@ options:
         type: bool
         default: true
 author:
-    - Yasir Hamahdi Alsahli (@crusty.rusty.engine@gmail.com)
+    - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''
