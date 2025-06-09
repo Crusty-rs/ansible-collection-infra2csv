@@ -1,3 +1,4 @@
+
 # infra2csv - Infra Data to CSV
 
 A minimal Ansible collection to gather system infrastructure data and export it to CSV. Ideal for automation, audits, and data pipelines.
