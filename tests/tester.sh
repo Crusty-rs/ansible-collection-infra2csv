@@ -1,12 +1,8 @@
 #!/bin/bash
-
 set -e
 
-# 🎯 Setup: Inventory file drop (no excuses)
 echo "localhost ansible_connection=local" > i
-export ANSIBLE_LIBRARY=./plugins/modules
-export ANSIBLE_MODULE_UTILS=./plugins/module_utils
-INVENTORY="i"
+INVENTORY="ini"
 TARGET="localhost"
 
 echo "📦 Infra2CSV Ad-Hoc Tester 🔥"
@@ -15,10 +11,9 @@ echo "📂 Output directory: /tmp"
 echo "🔒 Running with sudo (become: yes)"
 echo ""
 
-# 🚀 Each test runs fast, loud, and logged
 run_test() {
   echo "==> Running: $1"
-  ansible $TARGET -i $INVENTORY -b -m "$2" -a "$3"
+  ansible $TARGET -i $INVENTORY -b -m "crusty.infra2csv.$2" -a "$3"
   echo "✅ Done: $2"
   echo ""
 }

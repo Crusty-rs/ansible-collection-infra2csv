@@ -20,25 +20,28 @@ DOCUMENTATION = '''
 ---
 module: hardware_csv
 short_description: Collect hardware information and write to CSV
-description:
-    - Gathers system hardware information including CPU, memory, disk, and system details
-    - Appends data to a CSV file for inventory tracking
-    - Works on physical, virtual, and containerized systems
+description: |
+  Gathers system hardware information including CPU, memory, disk, and system details.
+  Appends data to a CSV file for inventory tracking.
+  Works on physical, virtual, and containerized systems.
 options:
-    csv_path:
-        description: Path to the CSV file
-        required: true
-        type: str
-    include_headers:
-        description: Whether to include headers in CSV
-        required: false
-        type: bool
-        default: true
+  csv_path:
+    description: Path to the CSV file
+    required: true
+    type: str
+  include_headers:
+    description: Whether to include headers in CSV
+    required: false
+    type: bool
+    default: true
 requirements:
-    - Linux operating system
-    - Commands: lscpu, dmidecode (optional), who, lsblk
+  - Linux operating system
+  - lscpu
+  - dmidecode (optional)
+  - who
+  - lsblk
 author:
-    - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
+  - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''

@@ -20,34 +20,34 @@ DOCUMENTATION = '''
 ---
 module: storage_csv
 short_description: Collect storage information and write to CSV
-description:
-    - Gathers storage information in two modes: filesystem or device
-    - Filesystem mode collects mounted filesystem usage
-    - Device mode collects block device information
-    - Handles various storage types including LVM, NFS, and virtual filesystems
+description: |
+  Gathers storage information in two modes: filesystem or device.
+  Filesystem mode collects mounted filesystem usage.
+  Device mode collects block device information.
+  Handles various storage types including LVM, NFS, and virtual filesystems.
 options:
-    csv_path:
-        description: Path to the CSV file
-        required: true
-        type: str
-    include_headers:
-        description: Whether to include headers in CSV
-        required: false
-        type: bool
-        default: true
-    mode:
-        description: Collection mode - filesystem or device
-        required: false
-        type: str
-        choices: ['filesystem', 'device']
-        default: filesystem
-    include_lvm:
-        description: Include LVM volumes in filesystem mode
-        required: false
-        type: bool
-        default: false
+  csv_path:
+    description: Path to the CSV file
+    required: true
+    type: str
+  include_headers:
+    description: Whether to include headers in CSV
+    required: false
+    type: bool
+    default: true
+  mode:
+    description: Collection mode - filesystem or device
+    required: false
+    type: str
+    choices: ['filesystem', 'device']
+    default: filesystem
+  include_lvm:
+    description: Include LVM volumes in filesystem mode
+    required: false
+    type: bool
+    default: false
 author:
-    - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
+  - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''

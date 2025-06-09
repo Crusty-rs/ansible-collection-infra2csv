@@ -1,15 +1,18 @@
-# Ansible Galaxy metadata for infra2csv collection
+---
 namespace: crusty_rs
 name: infra2csv
 version: 1.0.0
 
 readme: README.md
 authors:
-  - Infrastructure Team <infrastructure@example.com>
+  - Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 description: >
-  Robust infrastructure data collection to CSV for analytics and reporting.
-  Never fails on weird distributions - handles missing commands gracefully.
+  Collects system info from all your hosts into structured CSVs on the control node.
+  No Jinja loops, no remote writes. Just clean, centralized facts across 7 categories:
+  hardware, network, storage, users, security, filesystem health, and schedulers.
+  Built for audits, reporting, asset tracking, and migrations. Simple, expandable, and
+  made for real-world Linux ops.
 
 license:
   - MIT
@@ -20,20 +23,28 @@ tags:
   - inventory
   - csv
   - reporting
-  - hardware
-  - network
-  - storage
-  - security
-  - analytics
+  - auditing
+  - dashboards
+  - observability
   - powerbi
-  - compliance
+  - grafana
+  - fact_collection
+  - data_export
+  - hardware
+  - storage
+  - network
+  - security
+  - linux
+  - discovery
+  - cloud_inventory
+  - ansible_collection
 
 dependencies: {}
 
-repository: https://github.com/crusty-rs/ansible-collection-infra2csv
-documentation: https://github.com/crusty-rs/ansible-collection-infra2csv/wiki
-homepage: https://github.com/crusty-rs/ansible-collection-infra2csv
-issues: https://github.com/crusty-rs/ansible-collection-infra2csv/issues
+repository: https://github.com/Crusty-rs/ansible-collection-infra2csv
+documentation: https://github.com/Crusty-rs/ansible-collection-infra2csv/wiki
+homepage: https://github.com/Crusty-rs/ansible-collection-infra2csv
+issues: https://github.com/Crusty-rs/ansible-collection-infra2csv/issues
 
 build_ignore:
   - .gitignore
@@ -44,4 +55,6 @@ build_ignore:
   - __pycache__
   - tests/output
   - docs/build
+  - tester.sh
+  - test_*.yml
 
