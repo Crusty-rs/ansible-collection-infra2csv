@@ -1,5 +1,12 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
+"""
+Storage Facts Collection Module
+Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+
+Gets storage info two ways: filesystem usage (df) or block devices (lsblk).
+Handles LVM, NFS, weird mounts. Always delivers clean data.
+"""
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.infra2csv_utils import (
@@ -17,6 +24,7 @@ description:
     - Gathers storage information in two modes: filesystem or device
     - Filesystem mode collects mounted filesystem usage
     - Device mode collects block device information
+    - Handles various storage types including LVM, NFS, and virtual filesystems
 options:
     csv_path:
         description: Path to the CSV file
@@ -38,28 +46,42 @@ options:
         required: false
         type: bool
         default: false
+author:
+    - Yasir Hamahdi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''
+# Collect filesystem usage
 - name: Collect filesystem information
   storage_csv:
     csv_path: /tmp/storage_fs.csv
     mode: filesystem
     include_headers: true
 
+# Collect block devices
 - name: Collect block device information
   storage_csv:
     csv_path: /tmp/storage_devices.csv
     mode: device
+    
+# Include LVM volumes
+- name: Collect all filesystems including LVM
+  storage_csv:
+    csv_path: /tmp/storage_all.csv
+    mode: filesystem
+    include_lvm: true
 '''
 
 
 def parse_df_output(df_line):
-    """Parse a line of df output safely"""
-    # Handle long device names that wrap to next line
+    """
+    Parse df output line. Handles wrapped lines and weird device names.
+    Returns dict with all the storage stats or None if parse fails.
+    """
+    # df output: device fstype size used avail use% mountpoint
     parts = df_line.split()
     if len(parts) < 7:
-        return None
+        return None  # Incomplete line, skip it
     
     return {
         'device': parts[0],
@@ -73,35 +95,40 @@ def parse_df_output(df_line):
 
 
 def get_filesystem_info(module, include_lvm=False):
-    """Get filesystem information with fallback methods"""
+    """
+    Get mounted filesystem info using df.
+    Filters out pseudo filesystems unless you really want them.
+    """
     storage_data = []
     timestamp = get_timestamp()
     hostname = get_hostname()
     user = get_run_user()
     
-    # Try df first
+    # Use the exact df command format requested
     df_cmd = "df -h --output=source,fstype,size,used,avail,pcent,target"
     output = run_cmd(module, df_cmd, use_shell=True, ignore_errors=True)
     
     if output and output != "N/A":
         lines = output.splitlines()
-        # Skip header
+        # Skip header line
         for line in lines[1:]:
             if not line.strip():
-                continue
+                continue  # Empty line? Next!
             
+            # Parse the df output
             fs_info = parse_df_output(line)
             if not fs_info:
-                continue
+                continue  # Parse failed? Moving on
             
-            # Skip LVM if not requested
+            # Filter LVM if not requested
             if not include_lvm and fs_info['type'] in ['lvm2_member', 'device-mapper']:
-                continue
+                continue  # Skip LVM volumes
             
-            # Skip pseudo filesystems
+            # Filter snap mounts (Ubuntu things)
             if fs_info['type'] in ['tmpfs', 'devtmpfs', 'squashfs'] and '/snap' in fs_info['mountpoint']:
-                continue
+                continue  # Nobody needs snap loop mounts in their data
             
+            # Build the CSV row
             storage_data.append({
                 'mode': 'filesystem',
                 'device': fs_info['device'],
@@ -116,7 +143,7 @@ def get_filesystem_info(module, include_lvm=False):
                 'timestamp': timestamp
             })
     
-    # Fallback: parse /proc/mounts if df fails
+    # Fallback: Parse /proc/mounts if df fails (container scenario)
     if not storage_data and os.path.exists('/proc/mounts'):
         try:
             with open('/proc/mounts', 'r') as f:
@@ -127,9 +154,9 @@ def get_filesystem_info(module, include_lvm=False):
                         mountpoint = parts[1]
                         fstype = parts[2]
                         
-                        # Skip virtual filesystems
+                        # Only real filesystems
                         if device.startswith('/dev/') or device in ['tmpfs', 'none']:
-                            # Try to get size info from statfs
+                            # Get size info using statvfs
                             try:
                                 stat = os.statvfs(mountpoint)
                                 total = stat.f_blocks * stat.f_frsize
@@ -141,7 +168,7 @@ def get_filesystem_info(module, include_lvm=False):
                                     'mode': 'filesystem',
                                     'device': device,
                                     'type': fstype,
-                                    'size': f"{total // (1024**3)}G",
+                                    'size': f"{total // (1024**3)}G",  # Bytes to GB
                                     'used': f"{used // (1024**3)}G",
                                     'avail': f"{free // (1024**3)}G",
                                     'use_percent': f"{percent}%",
@@ -151,21 +178,24 @@ def get_filesystem_info(module, include_lvm=False):
                                     'timestamp': timestamp
                                 })
                             except Exception:
-                                pass
+                                pass  # Can't stat? Skip it
         except Exception:
-            pass
+            pass  # /proc/mounts issues? We tried
     
     return storage_data
 
 
 def get_device_info(module):
-    """Get block device information with fallback methods"""
+    """
+    Get block device info using lsblk.
+    Shows physical disks, sizes, models. The hardware view.
+    """
     storage_data = []
     timestamp = get_timestamp()
     hostname = get_hostname()
     user = get_run_user()
     
-    # Try lsblk first
+    # Get block devices with size in bytes
     lsblk_cmd = "lsblk -b -d -n -o NAME,SIZE,TYPE,MODEL"
     output = run_cmd(module, lsblk_cmd, use_shell=True, ignore_errors=True)
     
@@ -189,10 +219,11 @@ def get_device_info(module):
                     'timestamp': timestamp
                 })
     
-    # Fallback: parse /sys/block
+    # Fallback: Parse /sys/block if lsblk missing
     if not storage_data and os.path.exists('/sys/block'):
         try:
             for device in os.listdir('/sys/block'):
+                # Skip loop and ram devices
                 if device.startswith('loop') or device.startswith('ram'):
                     continue
                 
@@ -201,7 +232,7 @@ def get_device_info(module):
                 dtype = 'disk'
                 model = 'N/A'
                 
-                # Get size
+                # Get size from sysfs
                 size_file = f"/sys/block/{device}/size"
                 if os.path.exists(size_file):
                     try:
@@ -210,16 +241,16 @@ def get_device_info(module):
                             sectors = int(f.read().strip())
                             size_bytes = str(sectors * 512)
                     except Exception:
-                        pass
+                        pass  # Can't read size? Default to N/A
                 
-                # Get model
+                # Get model from sysfs
                 model_file = f"/sys/block/{device}/device/model"
                 if os.path.exists(model_file):
                     try:
                         with open(model_file, 'r') as f:
                             model = f.read().strip()
                     except Exception:
-                        pass
+                        pass  # No model info available
                 
                 storage_data.append({
                     'mode': 'device',
@@ -232,12 +263,14 @@ def get_device_info(module):
                     'timestamp': timestamp
                 })
         except Exception:
-            pass
+            pass  # /sys/block issues? Containers be like that
     
     return storage_data
 
 
 def main():
+    """Main execution. Choose your mode: filesystem or device."""
+    # Define module parameters
     module = AnsibleModule(
         argument_spec=dict(
             csv_path=dict(type='str', required=True),
@@ -245,16 +278,17 @@ def main():
             mode=dict(type='str', choices=['filesystem', 'device'], default='filesystem'),
             include_lvm=dict(type='bool', default=False)
         ),
-        supports_check_mode=True
+        supports_check_mode=True  # Dry runs supported
     )
     
+    # Get parameters
     csv_path = module.params['csv_path']
     include_headers = module.params['include_headers']
     mode = module.params['mode']
     include_lvm = module.params['include_lvm']
     
     try:
-        # Gather storage data based on mode
+        # Collect storage data based on mode
         if mode == 'filesystem':
             storage_data = get_filesystem_info(module, include_lvm)
             expected_fields = STORAGE_FS_FIELDS
@@ -262,11 +296,11 @@ def main():
             storage_data = get_device_info(module)
             expected_fields = STORAGE_DEVICE_FIELDS
         
-        # Validate schema
+        # Validate schema - keep data consistent
         if storage_data:
             storage_data = validate_schema(module, storage_data, expected_fields)
         
-        # Check mode - return data without writing
+        # Check mode - preview without writing
         if module.check_mode:
             module.exit_json(
                 changed=False,
@@ -276,7 +310,7 @@ def main():
                 mode=mode
             )
         
-        # Handle no data found
+        # Handle no data scenario
         if not storage_data:
             module.warn(f"No storage data found in {mode} mode")
             module.exit_json(
@@ -286,9 +320,10 @@ def main():
                 mode=mode
             )
         
-        # Write to CSV
+        # Write to CSV - the main event
         entries = write_csv(module, csv_path, storage_data, include_headers, expected_fields)
         
+        # Report success
         module.exit_json(
             changed=True,
             msg=f"Storage data written successfully ({mode} mode)",
@@ -298,6 +333,7 @@ def main():
         )
         
     except Exception as e:
+        # Something broke? Be transparent
         module.fail_json(msg=f"Failed to collect storage data: {str(e)}")
 
 

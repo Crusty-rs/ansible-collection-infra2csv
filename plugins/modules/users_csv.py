@@ -1,5 +1,12 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
+"""
+User Facts Collection Module  
+Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+
+User accounts, cron jobs, sudo access. The who's who of your system.
+Tracks scheduled tasks and privilege levels. Security loves this data.
+"""
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.infra2csv_utils import (
@@ -16,7 +23,8 @@ module: users_csv
 short_description: Collect user information and scheduled jobs
 description:
     - Gathers user account information and their scheduled jobs
-    - Includes cron jobs and systemd timers
+    - Includes cron jobs (user and system) and sudo privileges
+    - Can filter system users (UID < 1000)
 options:
     csv_path:
         description: Path to the CSV file
@@ -32,23 +40,43 @@ options:
         required: false
         type: bool
         default: false
+author:
+    - Yasir Hamahdi Alsahli (@crusty.rusty.engine@gmail.com)
+'''
+
+EXAMPLES = '''
+# Collect regular users only
+- name: Collect user information
+  users_csv:
+    csv_path: /tmp/users.csv
+    include_headers: true
+    include_system_users: false
+
+# Include system users
+- name: Collect all users including system accounts
+  users_csv:
+    csv_path: /var/lib/infra2csv/users_all.csv
+    include_system_users: true
 '''
 
 
 def get_user_info(module, include_system_users=False):
-    """Get user account information"""
+    """
+    Get user account details and their scheduled jobs.
+    Combines passwd info with cron jobs. Full user profile.
+    """
     users_data = []
     timestamp = get_timestamp()
     hostname = get_hostname()
     
-    # Get all users from passwd
+    # Enumerate all users from passwd database
     try:
         for user in pwd.getpwall():
-            # Skip system users if requested
+            # Filter system users if not wanted
             if not include_system_users and user.pw_uid < 1000:
-                continue
+                continue  # System user, skipping
             
-            # Get last login info
+            # Get last login info (might not be available)
             last_login = 'N/A'
             lastlog_output = run_cmd(
                 module, 
@@ -64,10 +92,10 @@ def get_user_info(module, include_system_users=False):
                     if match:
                         last_login = match.group(1)
             
-            # Check if user has sudo privileges
+            # Check sudo privileges
             is_privileged = check_sudo_access(module, user.pw_name)
             
-            # Base user info
+            # Base user info row
             user_info = {
                 'hostname': hostname,
                 'username': user.pw_name,
@@ -76,7 +104,7 @@ def get_user_info(module, include_system_users=False):
                 'home_directory': user.pw_dir,
                 'shell': user.pw_shell,
                 'last_login': last_login,
-                'schedule': 'N/A',
+                'schedule': 'N/A',  # No schedule for base user entry
                 'command': 'N/A',
                 'source_type': 'user_account',
                 'enabled': 'yes',
@@ -87,28 +115,33 @@ def get_user_info(module, include_system_users=False):
             
             users_data.append(user_info)
             
-            # Get cron jobs for this user
+            # Get user's cron jobs
             cron_jobs = get_user_cron_jobs(module, user.pw_name)
             for job in cron_jobs:
+                # Create new row for each cron job
                 job_info = user_info.copy()
                 job_info.update({
                     'schedule': job['schedule'],
                     'command': job['command'],
                     'source_type': 'cron',
                     'enabled': job['enabled'],
-                    'next_run_time': 'N/A'
+                    'next_run_time': 'N/A'  # Could calculate but complex
                 })
                 users_data.append(job_info)
             
     except Exception as e:
+        # User enumeration failed? That's bad
         module.warn(f"Failed to enumerate users: {str(e)}")
     
     return users_data
 
 
 def check_sudo_access(module, username):
-    """Check if user has sudo access"""
-    # Check sudoers file
+    """
+    Check if user has sudo privileges.
+    Checks sudoers files and sudo/wheel group membership.
+    """
+    # Check sudoers file and sudoers.d directory
     sudoers_output = run_cmd(
         module,
         f"grep -E '^{username}|^%.*{username}' /etc/sudoers /etc/sudoers.d/* 2>/dev/null",
@@ -117,9 +150,9 @@ def check_sudo_access(module, username):
     )
     
     if sudoers_output and sudoers_output != "N/A" and username in sudoers_output:
-        return "yes"
+        return "yes"  # Found in sudoers
     
-    # Check if user is in sudo/wheel group
+    # Check group membership (sudo or wheel)
     groups_output = run_cmd(
         module,
         f"groups {username}",
@@ -128,16 +161,19 @@ def check_sudo_access(module, username):
     
     if groups_output and groups_output != "N/A":
         if 'sudo' in groups_output or 'wheel' in groups_output:
-            return "yes"
+            return "yes"  # Member of sudo/wheel group
     
-    return "no"
+    return "no"  # No sudo access found
 
 
 def get_user_cron_jobs(module, username):
-    """Get cron jobs for a specific user"""
+    """
+    Get cron jobs for a specific user.
+    Parses crontab -l output. Returns list of jobs.
+    """
     cron_jobs = []
     
-    # Try to read user's crontab
+    # Get user's crontab
     crontab_output = run_cmd(
         module,
         f"crontab -l -u {username}",
@@ -154,6 +190,7 @@ def get_user_cron_jobs(module, username):
             
             # Parse cron entry
             # Format: minute hour day month weekday command
+            # Or: @reboot, @daily, etc.
             match = re.match(r'^(@\w+|[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+)\s+(.+)$', line)
             if match:
                 schedule = match.group(1)
@@ -161,20 +198,23 @@ def get_user_cron_jobs(module, username):
                 
                 cron_jobs.append({
                     'schedule': schedule,
-                    'command': command[:200],  # Limit command length
-                    'enabled': 'yes'
+                    'command': command[:200],  # Limit length for CSV
+                    'enabled': 'yes'  # Active cron entries
                 })
     
     return cron_jobs
 
 
 def get_system_cron_jobs(module):
-    """Get system-wide cron jobs"""
+    """
+    Get system-wide cron jobs from /etc/crontab and /etc/cron.d/.
+    These run as specific users but are centrally managed.
+    """
     system_jobs = []
     hostname = get_hostname()
     timestamp = get_timestamp()
     
-    # Check /etc/crontab
+    # Check /etc/crontab (the main system crontab)
     try:
         if os.path.exists('/etc/crontab'):
             with open('/etc/crontab', 'r') as f:
@@ -183,12 +223,12 @@ def get_system_cron_jobs(module):
                     if not line or line.startswith('#'):
                         continue
                     
-                    # System crontab format includes user field
+                    # System crontab includes username field
                     match = re.match(r'^([\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+)\s+(\S+)\s+(.+)$', line)
                     if match:
                         system_jobs.append({
                             'hostname': hostname,
-                            'username': match.group(2),
+                            'username': match.group(2),  # User who runs the job
                             'uid': 'N/A',
                             'gid': 'N/A',
                             'home_directory': 'N/A',
@@ -200,12 +240,12 @@ def get_system_cron_jobs(module):
                             'enabled': 'yes',
                             'next_run_time': 'N/A',
                             'timestamp': timestamp,
-                            'is_privileged': 'yes'
+                            'is_privileged': 'yes'  # System cron = privileged
                         })
     except Exception:
-        pass
+        pass  # Can't read /etc/crontab? Moving on
     
-    # Check /etc/cron.d/
+    # Check /etc/cron.d/ directory
     try:
         if os.path.exists('/etc/cron.d'):
             for filename in os.listdir('/etc/cron.d'):
@@ -218,6 +258,7 @@ def get_system_cron_jobs(module):
                                 if not line or line.startswith('#'):
                                     continue
                                 
+                                # Same format as /etc/crontab
                                 match = re.match(r'^([\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+)\s+(\S+)\s+(.+)$', line)
                                 if match:
                                     system_jobs.append({
@@ -237,40 +278,43 @@ def get_system_cron_jobs(module):
                                         'is_privileged': 'yes'
                                     })
                     except Exception:
-                        pass
+                        pass  # Can't read this cron file? Next
     except Exception:
-        pass
+        pass  # /etc/cron.d issues? It happens
     
     return system_jobs
 
 
 def main():
+    """Main execution. User enumeration begins."""
+    # Define module parameters
     module = AnsibleModule(
         argument_spec=dict(
             csv_path=dict(type='str', required=True),
             include_headers=dict(type='bool', default=True),
             include_system_users=dict(type='bool', default=False)
         ),
-        supports_check_mode=True
+        supports_check_mode=True  # Support dry runs
     )
     
+    # Get parameters
     csv_path = module.params['csv_path']
     include_headers = module.params['include_headers']
     include_system_users = module.params['include_system_users']
     
     try:
-        # Gather user data
+        # Gather user account data
         users_data = get_user_info(module, include_system_users)
         
-        # Add system cron jobs
+        # Add system cron jobs (always included)
         system_jobs = get_system_cron_jobs(module)
         users_data.extend(system_jobs)
         
-        # Validate schema
+        # Validate schema - keep it clean
         if users_data:
             users_data = validate_schema(module, users_data, USER_FIELDS)
         
-        # Check mode
+        # Check mode - preview only
         if module.check_mode:
             module.exit_json(
                 changed=False,
@@ -279,7 +323,7 @@ def main():
                 entries=len(users_data)
             )
         
-        # Handle no data
+        # No user data? (shouldn't happen but...)
         if not users_data:
             module.exit_json(
                 changed=False,
@@ -287,9 +331,10 @@ def main():
                 entries=0
             )
         
-        # Write to CSV
+        # Write to CSV - capture the data
         entries = write_csv(module, csv_path, users_data, include_headers, USER_FIELDS)
         
+        # Report success
         module.exit_json(
             changed=True,
             msg="User data written successfully",
@@ -297,6 +342,7 @@ def main():
         )
         
     except Exception as e:
+        # User collection failed? Report it
         module.fail_json(msg=f"Failed to collect user data: {str(e)}")
 
 

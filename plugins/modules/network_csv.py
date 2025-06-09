@@ -1,5 +1,12 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
+"""
+Network Facts Collection Module
+Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+
+Network interface scanner. Gets MACs, speeds, states, MTUs.
+Works without ip command using /sys/class/net. Adaptable AF.
+"""
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.infra2csv_utils import (
@@ -15,7 +22,8 @@ module: network_csv
 short_description: Collect network interface information and write to CSV
 description:
     - Gathers network interface details including MAC address, state, speed, and MTU
-    - Appends data to a CSV file for network inventory tracking
+    - Works with or without ip command using sysfs fallbacks
+    - Handles physical, virtual, and container network interfaces
 options:
     csv_path:
         description: Path to the CSV file
@@ -31,19 +39,31 @@ options:
         required: false
         type: bool
         default: false
+author:
+    - Yasir Hamahdi Alsahli (@crusty.rusty.engine@gmail.com)
 '''
 
 EXAMPLES = '''
+# Collect all interfaces including loopback
 - name: Collect network interface information
   network_csv:
     csv_path: /tmp/network_inventory.csv
     include_headers: true
+    skip_loopback: false
+
+# Skip loopback interface
+- name: Collect physical interfaces only
+  network_csv:
+    csv_path: /var/lib/infra2csv/network.csv
     skip_loopback: true
 '''
 
 
 def get_interface_info_sysfs(interface):
-    """Get interface info directly from sysfs"""
+    """
+    Get interface details straight from sysfs.
+    No external commands needed. Direct kernel info.
+    """
     base_path = f"/sys/class/net/{interface}"
     
     info = {
@@ -54,29 +74,34 @@ def get_interface_info_sysfs(interface):
         'mtu': 'N/A'
     }
     
-    # MAC address
+    # MAC address - the unique identifier
     info['mac_address'] = read_file_safe(f"{base_path}/address", "N/A")
     if info['mac_address'] == "00:00:00:00:00:00":
-        info['mac_address'] = "N/A"  # Some virtual interfaces
+        info['mac_address'] = "N/A"  # Loopback and some virtuals have zeros
     
-    # Operational state
+    # Operational state (up/down/unknown)
     info['state'] = read_file_safe(f"{base_path}/operstate", "N/A")
     
-    # Speed (may not exist for all interfaces)
+    # Speed in Mbps (might not exist for all interfaces)
     speed = read_file_safe(f"{base_path}/speed", "N/A")
     if speed != "N/A" and speed.isdigit() and int(speed) >= 0:
         info['speed_mbps'] = speed
+    # Note: -1 means speed unknown, we treat as N/A
     
-    # MTU
+    # MTU - Maximum Transmission Unit
     info['mtu'] = read_file_safe(f"{base_path}/mtu", "N/A")
     
     return info
 
 
 def get_interfaces_from_ip_command(module):
-    """Get interface list using ip command"""
+    """
+    Get interface list using ip command.
+    Modern way, but not always available (containers).
+    """
     interfaces = []
     
+    # Run ip command with oneline output
     output = run_cmd(module, "ip -o link show", use_shell=True, ignore_errors=True)
     if output and output != "N/A":
         for line in output.splitlines():
@@ -90,38 +115,46 @@ def get_interfaces_from_ip_command(module):
 
 
 def get_interfaces_from_sysfs():
-    """Get interface list from /sys/class/net"""
+    """
+    Get interfaces directly from /sys/class/net.
+    Fallback when ip command missing. Always works on Linux.
+    """
     interfaces = []
     
     try:
         if os.path.exists('/sys/class/net'):
+            # List all network interfaces
             interfaces = [
                 iface for iface in os.listdir('/sys/class/net')
                 if os.path.isdir(f'/sys/class/net/{iface}')
             ]
     except Exception:
-        pass
+        pass  # No /sys? That's... unusual
     
     return interfaces
 
 
 def get_network_info(module, skip_loopback=False):
-    """Get network interface information"""
+    """
+    Main network collection function.
+    Tries ip command first, falls back to sysfs. Always gets the data.
+    """
     nic_data = []
     timestamp = get_timestamp()
     hostname = get_hostname()
     user = get_run_user()
     skipped_count = 0
     
-    # Try to get interfaces using ip command first
+    # Try ip command first (the modern way)
     interfaces = get_interfaces_from_ip_command(module)
     
-    # Fallback to sysfs if ip command fails
+    # Fallback to sysfs if ip fails (the reliable way)
     if not interfaces:
         interfaces = get_interfaces_from_sysfs()
         if interfaces:
             module.warn("ip command not available, using /sys/class/net")
     
+    # No interfaces at all? That's concerning
     if not interfaces:
         module.warn("No network interfaces found")
         return nic_data
@@ -130,13 +163,13 @@ def get_network_info(module, skip_loopback=False):
     for interface in interfaces:
         # Skip loopback if requested
         if skip_loopback and interface == 'lo':
-            continue
+            continue  # lo not needed? Skipping
         
         try:
-            # Get interface information
+            # Get interface details from sysfs
             info = get_interface_info_sysfs(interface)
             
-            # Add common fields
+            # Add common fields for correlation
             info['hostname'] = hostname
             info['run_by'] = user
             info['timestamp'] = timestamp
@@ -144,10 +177,11 @@ def get_network_info(module, skip_loopback=False):
             nic_data.append(info)
             
         except Exception as e:
+            # Interface vanished? Happens with virtual interfaces
             module.warn(f"Failed to get info for interface {interface}: {str(e)}")
             skipped_count += 1
             
-            # Still add entry with N/A values
+            # Still add entry with N/A values - data completeness matters
             nic_data.append({
                 'interface': interface,
                 'mac_address': 'N/A',
@@ -159,6 +193,7 @@ def get_network_info(module, skip_loopback=False):
                 'timestamp': timestamp
             })
     
+    # Report any issues
     if skipped_count > 0:
         module.warn(f"Failed to get complete info for {skipped_count} interface(s)")
     
@@ -166,32 +201,35 @@ def get_network_info(module, skip_loopback=False):
 
 
 def main():
+    """Main execution. Network discovery starts here."""
+    # Define module parameters
     module = AnsibleModule(
         argument_spec=dict(
             csv_path=dict(type='str', required=True),
             include_headers=dict(type='bool', default=True),
             skip_loopback=dict(type='bool', default=False)
         ),
-        supports_check_mode=True
+        supports_check_mode=True  # Preview mode enabled
     )
     
+    # Get parameters
     csv_path = module.params['csv_path']
     include_headers = module.params['include_headers']
     skip_loopback = module.params['skip_loopback']
     
     try:
-        # Check if we're on a supported system
+        # Linux check - this module needs /sys/class/net
         if not os.path.exists('/sys/class/net'):
             module.fail_json(msg="This module requires Linux with /sys/class/net")
         
-        # Gather network data
+        # Gather network interface data
         network_data = get_network_info(module, skip_loopback)
         
-        # Validate schema
+        # Validate schema - consistency is key
         if network_data:
             network_data = validate_schema(module, network_data, NIC_FIELDS)
         
-        # Check mode - return data without writing
+        # Check mode - show what we'd collect
         if module.check_mode:
             module.exit_json(
                 changed=False,
@@ -200,7 +238,7 @@ def main():
                 entries=len(network_data)
             )
         
-        # Handle no data found
+        # No interfaces found? (shouldn't happen but...)
         if not network_data:
             module.exit_json(
                 changed=False,
@@ -208,9 +246,10 @@ def main():
                 entries=0
             )
         
-        # Write to CSV
+        # Write to CSV - drop the data
         entries = write_csv(module, csv_path, network_data, include_headers, NIC_FIELDS)
         
+        # Success report
         module.exit_json(
             changed=True,
             msg="Network data written successfully",
@@ -219,6 +258,7 @@ def main():
         )
         
     except Exception as e:
+        # Network scan failed? Report the issue
         module.fail_json(msg=f"Failed to collect network data: {str(e)}")
 
 
