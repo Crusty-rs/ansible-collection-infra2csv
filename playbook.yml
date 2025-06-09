@@ -1,9 +1,0 @@
-# test.yml
-- name: Test hardware module
-  hosts: all
-  become: true
-  tasks:
-    - name: Collect hardware info
-      crusty_rs.infra2csv.hardware_csv:
-        csv_path: /tmp/hardware.csv
-
