@@ -2,7 +2,7 @@
 # crusty_rs.infra2csv
 
 **Target-first infrastructure data collection for Ansible.**  
-Think roles, not modules.
+Think not only of modules, but also roles
 
 **Made by:** Yasir Hamadi Alsahli (Jr. Linux Engineer | Rust Dev)  
 **Props to:** Ansible & Linux communities
