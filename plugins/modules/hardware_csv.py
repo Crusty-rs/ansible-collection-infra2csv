@@ -23,7 +23,7 @@ DOCUMENTATION = '''
 module: hardware_csv
 short_description: Collect hardware info and write locally
 description: |
-  Gathers system hardware information and writes directly to target host.
+  Writes/Gathers system hardware information and writes directly to target host (get collected back & cleaned).
   Supports CSV and JSON output based on file extension.
   Works on physical, virtual, and containerized systems.
 options:

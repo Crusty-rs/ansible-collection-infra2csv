@@ -24,7 +24,7 @@ DOCUMENTATION = '''
 module: filesystem_health
 short_description: Collect filesystem health locally
 description:
-    - Gathers filesystem health status and writes to target host
+    - Writes/Gathers filesystem health status and writes to target host (get collected back & cleaned).
     - Checks fsck requirements for ext2/3/4 and XFS filesystems
     - Supports CSV and JSON output based on file extension
 options:

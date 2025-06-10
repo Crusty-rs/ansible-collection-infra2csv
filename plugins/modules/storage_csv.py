@@ -23,7 +23,7 @@ DOCUMENTATION = '''
 module: storage_csv
 short_description: Collect storage info locally
 description: |
-  Gathers storage information and writes to target host.
+  Writes/Gathers storage information and writes to target host (get collected back & cleaned).
   Filesystem mode: mounted filesystem usage.
   Device mode: block device information.
 options:

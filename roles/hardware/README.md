@@ -14,6 +14,20 @@ Minimal, clean Ansible roles to collect system info and merge into CSVs.
 
 ## 🚀 Usage
 
+**Full audit:**
+```yaml
+- hosts: all
+  become: true
+  roles:
+    - crusty_rs.infra2csv.hardware
+    - crusty_rs.infra2csv.network
+    - crusty_rs.infra2csv.storage
+    - crusty_rs.infra2csv.users
+    - crusty_rs.infra2csv.security
+    - crusty_rs.infra2csv.filesystem_health
+    - crusty_rs.infra2csv.merge_results
+```
+
 ### Collect All
 ```bash
 ansible-playbook -i inventory/production.ini playbooks/collect_all.yml

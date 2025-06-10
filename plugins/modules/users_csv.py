@@ -12,7 +12,7 @@ DOCUMENTATION = r'''
 module: users_csv
 short_description: Collect user account and cron job information from target systems
 description:
-    - Gathers user accounts and scheduled jobs to target host
+    - Writes/Gathers user accounts and scheduled jobs to target host (get collected back & cleaned).
     - Includes sudo privileges and cron job details
     - Supports CSV and JSON output based on file extension
     - Works with existing write_csv utilities

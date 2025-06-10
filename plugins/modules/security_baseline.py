@@ -12,7 +12,7 @@ DOCUMENTATION = r'''
 module: security_baseline
 short_description: Collect security baseline information from target systems
 description:
-    - Gathers security configuration and writes to target host
+    - Writes/Gathers security configuration and writes to target host (get collected back & cleaned).
     - Checks SELinux, firewall, SSH, and sudo configuration  
     - Supports CSV and JSON output based on file extension
     - Works with existing write_csv utilities

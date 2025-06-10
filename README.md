@@ -83,31 +83,6 @@ ansible-playbook -i inventory site.yml -e "infra_output_path=/var/tmp/collection
     output_format: table
 ```
 
-## ✦ Directory Structure
-
-```
-collections/
-└── ansible_collections/
-    └── crusty_rs/
-        └── infra2csv/
-            ├── plugins/
-            │   ├── modules/
-            │   └── module_utils/
-            └── README.md
-```
-
-Includes:
-- `infra2csv_playbook.yml`, `test_infra2csv.yml`
-- `install_infra2csv.sh`, `galaxy.yml`, `requirements.yml`
-
-## ✦ Configuration
-
-**Global vars:**
-| Variable               | Default              | Purpose                          |
-|------------------------|----------------------|----------------------------------|
-| `infra_output_path`    | `$HOME/infra2csv`    | Temp files on targets            |
-| `controller_output_path` | `/tmp/infra2csv`   | Final CSVs on controller         |
-| `cleanup_target`       | `true`               | Auto-cleanup on target hosts     |
 
 **Example group vars:**
 ```ini

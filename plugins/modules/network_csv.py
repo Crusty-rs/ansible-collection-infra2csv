@@ -23,7 +23,7 @@ DOCUMENTATION = '''
 module: network_csv
 short_description: Collect network interface info locally
 description:
-    - Gathers network interface details and writes to target host
+    - Writes/Gathers network interface details and writes to target host (get collected back & cleaned).
     - Supports CSV and JSON output based on file extension
     - Uses sysfs fallbacks when ip command unavailable
 options:
