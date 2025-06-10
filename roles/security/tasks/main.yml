@@ -1,26 +1,160 @@
+
 ---
-# Security Baseline Collection Role
-- name: Ensure output directory exists
+- name: "Ensure output directory exists"
   file:
-    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}"
+    path: "{{ infra_output_path }}"
     state: directory
     mode: '0755'
 
-- name: Collect security baseline (no headers)
-  crusty_rs.infra2csv.security_baseline:
-    output_path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/security_{{ inventory_hostname }}.csv"
-    include_headers: false
-  register: security_result
+- name: "Check available commands"
+  shell: |
+    # Check which commands are available
+    GETENFORCE_AVAIL="false"
+    GETENT_AVAIL="false"
+    SYSTEMCTL_AVAIL="false"
 
-- name: Fetch security data to controller
+    command -v getenforce >/dev/null 2>&1 && GETENFORCE_AVAIL="true"
+    command -v getent >/dev/null 2>&1 && GETENT_AVAIL="true"
+    command -v systemctl >/dev/null 2>&1 && SYSTEMCTL_AVAIL="true"
+
+    echo "getenforce_available=${GETENFORCE_AVAIL}"
+    echo "getent_available=${GETENT_AVAIL}"
+    echo "systemctl_available=${SYSTEMCTL_AVAIL}"
+  register: command_check
+  failed_when: false
+  changed_when: false
+
+- name: "Parse command availability"
+  set_fact:
+    getenforce_available: "{{ command_check.stdout | regex_search('getenforce_available=true') is not none }}"
+    getent_available: "{{ command_check.stdout | regex_search('getent_available=true') is not none }}"
+    systemctl_available: "{{ command_check.stdout | regex_search('systemctl_available=true') is not none }}"
+
+- name: "Collect security baseline (no headers)"
+  shell: |
+    set -e
+
+    # Create temp file for output
+    TEMP_FILE=$(mktemp)
+
+    # Get hostname
+    HOSTNAME=$(hostname)
+
+    # SELinux status - multiple methods
+    SELINUX_STATUS="not_installed"
+    {% if getenforce_available %}
+    SELINUX_STATUS=$(getenforce 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "not_installed")
+    {% else %}
+    # Fallback methods
+    if [ -f /sys/fs/selinux/enforce ]; then
+        ENFORCE_VAL=$(cat /sys/fs/selinux/enforce 2>/dev/null || echo "")
+        if [ "$ENFORCE_VAL" = "1" ]; then
+            SELINUX_STATUS="enforcing"
+        elif [ "$ENFORCE_VAL" = "0" ]; then
+            SELINUX_STATUS="permissive"
+        fi
+    elif [ -f /etc/selinux/config ]; then
+        SELINUX_STATUS=$(grep "^SELINUX=" /etc/selinux/config 2>/dev/null | cut -d= -f2 | tr '[:upper:]' '[:lower:]' || echo "not_installed")
+    fi
+    {% endif %}
+
+    # Firewall status - comprehensive check
+    FIREWALL_STATUS="no_firewall"
+    {% if systemctl_available %}
+    if systemctl is-active --quiet firewalld 2>/dev/null; then
+        FIREWALL_STATUS="firewalld_active"
+    elif systemctl is-active --quiet iptables 2>/dev/null; then
+        FIREWALL_STATUS="iptables_active"
+    elif systemctl is-active --quiet ufw 2>/dev/null; then
+        FIREWALL_STATUS="ufw_active"
+    else
+        # Check for manual iptables rules
+        RULE_COUNT=$(iptables -L -n 2>/dev/null | grep -c -E 'Chain|target' || echo "0")
+        if [ "$RULE_COUNT" -gt 3 ]; then
+            FIREWALL_STATUS="iptables_rules_present"
+        fi
+    fi
+    {% else %}
+    # Legacy system checks
+    if service firewalld status >/dev/null 2>&1; then
+        FIREWALL_STATUS="firewalld_legacy"
+    elif service iptables status >/dev/null 2>&1; then
+        FIREWALL_STATUS="iptables_legacy"
+    elif command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "active"; then
+        FIREWALL_STATUS="ufw_active"
+    fi
+    {% endif %}
+
+    # SSH configuration check
+    SSH_ROOT_LOGIN="N/A"
+    PASSWORD_AUTH="N/A"
+    if [ -f /etc/ssh/sshd_config ]; then
+        SSH_ROOT_LOGIN=$(grep -i "^PermitRootLogin" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | tr '[:upper:]' '[:lower:]' || echo "default_prohibit-password")
+        PASSWORD_AUTH=$(grep -i "^PasswordAuthentication" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | tr '[:upper:]' '[:lower:]' || echo "default_yes")
+    fi
+
+    # Admin groups and users - enhanced detection
+    ADMIN_USERS=""
+
+    # Method 1: Try getent if available
+    {% if getent_available %}
+    for group in sudo wheel admin; do
+        GROUP_USERS=$(getent group "$group" 2>/dev/null | cut -d: -f4 || echo "")
+        if [ -n "$GROUP_USERS" ]; then
+            if [ -z "$ADMIN_USERS" ]; then
+                ADMIN_USERS="$GROUP_USERS"
+            else
+                ADMIN_USERS="$ADMIN_USERS,$GROUP_USERS"
+            fi
+        fi
+    done
+    {% else %}
+    # Method 2: Parse /etc/group directly
+    for group in sudo wheel admin; do
+        GROUP_USERS=$(grep "^${group}:" /etc/group 2>/dev/null | cut -d: -f4 || echo "")
+        if [ -n "$GROUP_USERS" ]; then
+            if [ -z "$ADMIN_USERS" ]; then
+                ADMIN_USERS="$GROUP_USERS"
+            else
+                ADMIN_USERS="$ADMIN_USERS,$GROUP_USERS"
+            fi
+        fi
+    done
+    {% endif %}
+
+    # Remove duplicates and clean up
+    ADMIN_USERS=$(echo "$ADMIN_USERS" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//' || echo "none")
+    [ -z "$ADMIN_USERS" ] && ADMIN_USERS="none"
+
+    # Timestamp
+    TIMESTAMP=$(date -Iseconds 2>/dev/null || date)
+
+    # Output CSV line
+    echo "${HOSTNAME},${SELINUX_STATUS},${FIREWALL_STATUS},${SSH_ROOT_LOGIN},${PASSWORD_AUTH},${ADMIN_USERS},${TIMESTAMP}" > "$TEMP_FILE"
+
+    # Move temp file to final location
+    mv "$TEMP_FILE" "{{ infra_output_path }}/security_{{ inventory_hostname }}.csv"
+  args:
+    executable: /bin/bash
+  register: security_collection_result
+  failed_when: false
+
+- name: "Handle collection errors gracefully"
+  debug:
+    msg: "Warning: Some security data collection commands failed, but continuing with available data"
+  when: security_collection_result.rc != 0
+
+- name: "Fetch security data to controller"
   fetch:
-    src: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/security_{{ inventory_hostname }}.csv"
-    dest: "{{ controller_output_path | default('/tmp/infra2csv') }}/raw/"
+    src: "{{ infra_output_path }}/security_{{ inventory_hostname }}.csv"
+    dest: "{{ infra_output_path }}/raw/"
     flat: yes
-  when: security_result.entries > 0
+  when: security_collection_result.rc == 0 or security_collection_result.stdout_lines is defined
 
-- name: Cleanup security file on target
+- name: "Cleanup security file on target"
   file:
-    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/security_{{ inventory_hostname }}.csv"
+    path: "{{ infra_output_path }}/security_{{ inventory_hostname }}.csv"
     state: absent
-  when: cleanup_target | default(true)
+  when:
+    - infra_cleanup_target | default(false)
+    - security_collection_result.rc == 0 or security_collection_result.stdout_lines is defined
