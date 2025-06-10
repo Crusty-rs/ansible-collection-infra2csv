@@ -1,0 +1,17 @@
+---
+# Complete Infrastructure Collection Playbook
+- name: Collect All Infrastructure Data
+  hosts: all
+  become: true
+  roles:
+    - crusty_rs.infra2csv.hardware
+    - crusty_rs.infra2csv.network
+    - crusty_rs.infra2csv.storage
+    - crusty_rs.infra2csv.users
+    - crusty_rs.infra2csv.security
+    - crusty_rs.infra2csv.filesystem_health
+    - crusty_rs.infra2csv.merge_results
+
+# Override defaults example:
+# ansible-playbook collect_all.yml -e "controller_output_path=/opt/infra_data"
+# ansible-playbook collect_all.yml -e "infra_output_path=/tmp/collection skip_loopback=true"

@@ -1,0 +1,86 @@
+---
+# Merge Results Role - Controller Only
+- name: Ensure controller output directory exists
+  file:
+    path: "{{ controller_output_path | default('/tmp/infra2csv') }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Ensure raw directory exists
+  file:
+    path: "{{ controller_output_path | default('/tmp/infra2csv') }}/raw"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Merge hardware data with headers
+  shell: |
+    echo "hostname,ip,os,os_version,arch,cpu,ram_gb,uptime_sec,boot_time,serial_number,model,cpu_cores,cpu_threads,disk_total_gb,user_count,run_by,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/hardware.csv
+    cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/hardware_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/hardware.csv 2>/dev/null || true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: merge_hardware | default(true)
+
+- name: Merge network data with headers
+  shell: |
+    echo "interface,mac_address,state,speed_mbps,mtu,hostname,run_by,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/network.csv
+    cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/network_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/network.csv 2>/dev/null || true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: merge_network | default(true)
+
+- name: Merge storage data with headers
+  shell: |
+    echo "mode,device,type,size,used,avail,use_percent,mountpoint,hostname,run_by,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/storage.csv
+    cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/storage_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/storage.csv 2>/dev/null || true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: merge_storage | default(true)
+
+- name: Merge users data with headers
+  shell: |
+    echo "hostname,username,uid,gid,home_directory,shell,last_login,schedule,command,source_type,enabled,next_run_time,timestamp,is_privileged" > {{ controller_output_path | default('/tmp/infra2csv') }}/users.csv
+    cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/users_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/users.csv 2>/dev/null || true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: merge_users | default(true)
+
+- name: Merge security data with headers
+  shell: |
+    echo "hostname,selinux_status,firewalld_status,ssh_root_login,password_auth_status,users_with_sudo,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/security.csv
+    cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/security_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/security.csv 2>/dev/null || true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: merge_security | default(true)
+
+- name: Merge filesystem data with headers
+  shell: |
+    echo "hostname,mountpoint,fsck_required,last_fsck,last_fsck_result,filesystem_type,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/filesystem.csv
+    cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/filesystem_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/filesystem.csv 2>/dev/null || true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: merge_filesystem | default(true)
+
+- name: Cleanup raw files
+  shell: rm -rf {{ controller_output_path | default('/tmp/infra2csv') }}/raw/
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: cleanup_raw_files | default(true)
+
+- name: Display results location
+  debug:
+    msg: "Infrastructure data collected at {{ controller_output_path | default('/tmp/infra2csv') }}/"
+  delegate_to: localhost
+  run_once: true

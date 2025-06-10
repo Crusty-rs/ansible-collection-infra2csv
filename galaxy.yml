@@ -8,11 +8,12 @@ authors:
   - Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 description: >
-  Collects system info from all your hosts into structured CSVs on the control node.
+  Write/Collects system info from all your hosts into structured CSVs on the control node (via role).
   No Jinja loops, no remote writes. Just clean, centralized facts across 7 categories:
-  hardware, network, storage, users, security, filesystem health, and schedulers.
+  Hardware, network, storage, users, security, filesystem health, and schedulers.
   Built for audits, reporting, asset tracking, and migrations. Simple, expandable, and
-  made for real-world Linux ops.
+  Made for real-world Linux ops.
+  Please note - main role is the key player here
 
 license:
   - MIT

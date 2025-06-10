@@ -1,0 +1,6 @@
+
+---
+# Security Role Defaults
+infra_output_path: "{{ ansible_env.HOME }}/infra2csv"
+controller_output_path: "/tmp/infra2csv"
+cleanup_target: true

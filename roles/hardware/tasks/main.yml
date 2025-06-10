@@ -1,0 +1,26 @@
+---
+# Hardware Collection Role
+- name: Ensure output directory exists
+  file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}"
+    state: directory
+    mode: '0755'
+
+- name: Collect hardware data (no headers)
+  crusty_rs.infra2csv.hardware_csv:
+    output_path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/hardware_{{ inventory_hostname }}.csv"
+    include_headers: false
+  register: hardware_result
+
+- name: Fetch hardware data to controller
+  fetch:
+    src: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/hardware_{{ inventory_hostname }}.csv"
+    dest: "{{ controller_output_path | default('/tmp/infra2csv') }}/raw/"
+    flat: yes
+  when: hardware_result.entries > 0
+
+- name: Cleanup hardware file on target
+  file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/hardware_{{ inventory_hostname }}.csv"
+    state: absent
+  when: cleanup_target | default(true)

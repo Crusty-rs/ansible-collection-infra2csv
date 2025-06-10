@@ -1,218 +1,253 @@
 # -*- coding: utf-8 -*-
 """
-infra2csv Shared Utility Module
-Copyright (c) 2025 Yasir Hamahdi Alsahli <crusty.rusty.engine@gmail.com>
+infra2csv Enhanced Utility Module
+Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
-Core utils for the squad. Clean, consistent, no cap.
-This file should be placed in:
-collections/ansible_collections/infra2csv/infra2csv/plugins/module_utils/infra2csv_utils.py
+Target-only data collection. No controller BS. Clean, fast, bulletproof.
+Writes CSV or JSON directly on managed hosts. Zero delegation drama.
 """
 
 import os
 import csv
+import json
 import socket
 import getpass
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 
 def run_cmd(module, cmd, use_shell=False, ignore_errors=True):
-    """
-    Execute system commands without the drama.
-    
-    Args:
-        module: Ansible module instance (the boss)
-        cmd: Command to run (string or list)
-        use_shell: Shell mode on/off (default: nah)
-        ignore_errors: Keep vibing on errors (default: yep)
-    
-    Returns:
-        Command output or "N/A" when things go sideways
-    """
+    """Execute commands with zero drama. Returns output or 'N/A'."""
     try:
-        # Convert string to list for safer execution (security ftw)
         if isinstance(cmd, str) and not use_shell:
             cmd = cmd.split()
         
-        # Let Ansible handle the heavy lifting
         rc, out, err = module.run_command(cmd, use_unsafe_shell=use_shell)
         
         if rc != 0:
             if ignore_errors:
-                # Log the L but keep moving
-                module.warn(f"Command failed (rc={rc}): {cmd} -> {err}")
                 return "N/A"
             else:
-                # Full stop, this is serious
                 module.fail_json(msg=f"Command failed: {cmd}", rc=rc, stderr=err)
         
         return out.strip()
     except Exception as e:
         if ignore_errors:
-            # Catch the exception, log it, move on
-            module.warn(f"Exception running command {cmd}: {str(e)}")
             return "N/A"
         else:
-            # Nope, we're done here
-            module.fail_json(msg=f"Failed to execute command: {cmd}", exception=str(e))
+            module.fail_json(msg=f"Failed to execute: {cmd}", exception=str(e))
 
 
 def get_hostname():
-    """Get system hostname. No hostname? No problem."""
+    """Get hostname. Always works."""
     try:
         return socket.gethostname()
     except Exception:
-        return "N/A"  # Anonymous vibes
+        return "localhost"
 
 
 def get_ip_address():
-    """Get primary IP. Living off the grid? We got you."""
+    """Get primary IP. Falls back gracefully."""
     try:
         hostname = socket.gethostname()
         return socket.gethostbyname(hostname)
     except Exception:
-        return "N/A"  # Ghost mode activated
+        return "127.0.0.1"
 
 
 def get_run_user():
-    """Who's running this? Let's find out."""
+    """Current user. No mysteries."""
     try:
         return getpass.getuser()
     except Exception:
-        return "N/A"  # Mystery user
+        return "unknown"
 
 
 def get_timestamp():
-    """ISO timestamp. Keeping receipts since 2025."""
+    """ISO timestamp. Always consistent."""
     return datetime.now().isoformat()
 
 
-def ensure_dir(path):
-    """Make sure directory exists. Creating paths like we create opportunities."""
+def sanitize_path(path):
+    """Clean and validate file path. Security first."""
     if not path:
-        return
+        raise ValueError("Path cannot be empty")
     
-    dir_path = os.path.dirname(path)
-    if dir_path:
-        os.makedirs(dir_path, exist_ok=True)
+    # Convert to Path object for better handling
+    path_obj = Path(path).resolve()
+    
+    # Ensure parent directory exists
+    path_obj.parent.mkdir(parents=True, exist_ok=True)
+    
+    return str(path_obj)
 
 
-def read_file_safe(filepath, default="N/A"):
+def detect_output_format(path):
+    """Detect output format from file extension."""
+    path_lower = path.lower()
+    if path_lower.endswith('.json'):
+        return 'json'
+    elif path_lower.endswith('.csv'):
+        return 'csv'
+    else:
+        # Default to CSV for unknown extensions
+        return 'csv'
+
+
+def write_data(module, path, data, include_headers=True, fieldnames=None):
     """
-    Read files without the stress.
-    
-    Args:
-        filepath: Where we looking?
-        default: Backup plan (default: "N/A")
-    
-    Returns:
-        File contents or default value. No panic.
+    Universal data writer. CSV or JSON based on extension.
+    Target-only. No controller assumptions. Bulletproof.
     """
+    if not data:
+        return 0
+    
     try:
-        with open(filepath, 'r') as f:
-            return f.read().strip()
-    except Exception:
-        return default  # File not found? It's chill
+        # Sanitize path and detect format
+        clean_path = sanitize_path(path)
+        output_format = detect_output_format(clean_path)
+        
+        # Normalize data to list
+        rows = [data] if isinstance(data, dict) else list(data)
+        
+        if output_format == 'json':
+            return write_json(module, clean_path, rows)
+        else:
+            return write_csv(module, clean_path, rows, include_headers, fieldnames)
+            
+    except Exception as e:
+        module.fail_json(msg=f"Failed to write data to {path}: {str(e)}")
+
+
+def write_json(module, path, data):
+    """Write JSON data. Clean, atomic, reliable."""
+    try:
+        # Add metadata
+        output_data = {
+            'timestamp': get_timestamp(),
+            'hostname': get_hostname(),
+            'data_count': len(data),
+            'data': data
+        }
+        
+        # Atomic write using temp file
+        temp_path = f"{path}.tmp.{os.getpid()}"
+        
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, indent=2, ensure_ascii=False)
+        
+        # Atomic move
+        os.rename(temp_path, path)
+        
+        return len(data)
+        
+    except Exception as e:
+        # Clean up temp file if exists
+        temp_path = f"{path}.tmp.{os.getpid()}"
+        if os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+        raise e
 
 
 def write_csv(module, path, data, include_headers=True, fieldnames=None):
-    """
-    Write CSV like a pro. Clean, consistent, no mess.
-    
-    Args:
-        module: Ansible module instance
-        path: Where we dropping this CSV
-        data: The goods (dict or list of dicts)
-        include_headers: Headers or nah? (default: yeah)
-        fieldnames: Column order (optional, we'll figure it out)
-    
-    Returns:
-        Number of rows written. Keeping score.
-    """
-    # Normalize data - everything's a list now
-    rows = [data] if isinstance(data, dict) else list(data)
-    
-    if not rows:
-        return 0  # Nothing to write? We out
-    
-    # Figure out field names if not provided
-    if not fieldnames:
-        fieldnames = list(rows[0].keys())
-    
-    # Fill missing fields with "N/A" - no blanks allowed
-    for row in rows:
-        for field in fieldnames:
-            if field not in row:
-                row[field] = "N/A"
-    
-    # Ensure directory exists (creating the future)
-    ensure_dir(path)
+    """Write CSV data. Append-safe, consistent schema."""
+    if not data:
+        return 0
     
     try:
+        rows = [data] if isinstance(data, dict) else list(data)
+        
+        # Determine fieldnames
+        if not fieldnames:
+            fieldnames = list(rows[0].keys())
+        
+        # Fill missing fields with "N/A"
+        for row in rows:
+            for field in fieldnames:
+                if field not in row:
+                    row[field] = "N/A"
+        
         # Check if file exists and has content
         file_exists = os.path.exists(path) and os.path.getsize(path) > 0
         
-        # Open in append mode - we're building history
-        with open(path, 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+        # Atomic write using temp file for new files, direct append for existing
+        if file_exists:
+            # File exists, append directly
+            with open(path, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                for row in rows:
+                    writer.writerow(row)
+        else:
+            # New file, use atomic write
+            temp_path = f"{path}.tmp.{os.getpid()}"
             
-            # Write header if needed (first time's special)
-            if include_headers and not file_exists:
-                writer.writeheader()
+            with open(temp_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                
+                if include_headers:
+                    writer.writeheader()
+                
+                for row in rows:
+                    writer.writerow(row)
             
-            # Drop the data
-            for row in rows:
-                writer.writerow(row)
+            # Atomic move
+            os.rename(temp_path, path)
         
-        return len(rows)  # Mission accomplished
-    
+        return len(rows)
+        
     except Exception as e:
-        # CSV write failed? That's a wrap
-        module.fail_json(msg=f"Failed to write CSV to {path}: {str(e)}")
+        # Clean up temp file if exists
+        temp_path = f"{path}.tmp.{os.getpid()}"
+        if os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+        raise e
+
+
+def read_file_safe(filepath, default="N/A"):
+    """Read files without drama. Always returns something."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except Exception:
+        return default
 
 
 def validate_schema(module, data, expected_fields):
-    """
-    Keep the data clean and consistent. Schema police.
-    
-    Args:
-        module: Ansible module instance  
-        data: Data to validate (dict or list)
-        expected_fields: The law (list of required fields)
-    
-    Returns:
-        Validated data with all fields present
-    """
-    # Make it a list for easier processing
+    """Ensure data consistency. Fill gaps, warn about extras."""
     rows = [data] if isinstance(data, dict) else list(data)
     
     for row in rows:
-        # Check for rogues (unexpected fields)
+        # Check for unexpected fields
         extra_fields = set(row.keys()) - set(expected_fields)
         if extra_fields:
-            module.warn(f"Unexpected fields in data: {extra_fields}")
+            module.warn(f"Unexpected fields: {extra_fields}")
         
-        # Ensure all expected fields exist - no gaps
+        # Fill missing fields
         for field in expected_fields:
             if field not in row:
                 row[field] = "N/A"
     
-    return data  # Clean and validated
+    return data
 
 
 def get_bin_path_safe(module, binary, required=False):
-    """Find binary path. Not there? We'll deal."""
+    """Find binary path. Graceful degradation."""
     try:
         return module.get_bin_path(binary, required=required)
     except Exception as e:
         if required:
-            # Required binary missing? Game over
             module.fail_json(msg=f"Required binary '{binary}' not found: {str(e)}")
-        return None  # Optional binary? No stress
+        return None
 
 
-# Schema definitions - the blueprint for success
-# Each list defines exact field order and names
-
+# Schema definitions - exact field order and names
 HARDWARE_FIELDS = [
     "hostname", "ip", "os", "os_version", "arch", "cpu", "ram_gb",
     "uptime_sec", "boot_time", "serial_number", "model", "cpu_cores",

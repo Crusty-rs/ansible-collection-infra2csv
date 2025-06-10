@@ -1,0 +1,29 @@
+
+---
+# Storage Collection Role
+- name: Ensure output directory exists
+  file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}"
+    state: directory
+    mode: '0755'
+
+- name: Collect storage data (no headers)
+  crusty_rs.infra2csv.storage_csv:
+    output_path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/storage_{{ inventory_hostname }}.csv"
+    include_headers: false
+    mode: "{{ storage_mode | default('filesystem') }}"
+    include_lvm: "{{ include_lvm | default(false) }}"
+  register: storage_result
+
+- name: Fetch storage data to controller
+  fetch:
+    src: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/storage_{{ inventory_hostname }}.csv"
+    dest: "{{ controller_output_path | default('/tmp/infra2csv') }}/raw/"
+    flat: yes
+  when: storage_result.entries > 0
+
+- name: Cleanup storage file on target
+  file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/storage_{{ inventory_hostname }}.csv"
+    state: absent
+  when: cleanup_target | default(true)

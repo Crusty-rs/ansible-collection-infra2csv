@@ -1,0 +1,27 @@
+---
+# Users Collection Role
+- name: Ensure output directory exists
+  file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}"
+    state: directory
+    mode: '0755'
+
+- name: Collect users data (no headers)
+  crusty_rs.infra2csv.users_csv:
+    output_path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/users_{{ inventory_hostname }}.csv"
+    include_headers: false
+    include_system_users: "{{ include_system_users | default(false) }}"
+  register: users_result
+
+- name: Fetch users data to controller
+  fetch:
+    src: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/users_{{ inventory_hostname }}.csv"
+    dest: "{{ controller_output_path | default('/tmp/infra2csv') }}/raw/"
+    flat: yes
+  when: users_result.entries > 0
+
+- name: Cleanup users file on target
+  file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/users_{{ inventory_hostname }}.csv"
+    state: absent
+  when: cleanup_target | default(true)

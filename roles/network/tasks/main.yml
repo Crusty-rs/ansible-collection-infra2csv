@@ -1,0 +1,28 @@
+
+---
+# Network Collection Role
+- name: Ensure output directory exists
+  file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}"
+    state: directory
+    mode: '0755'
+
+- name: Collect network data (no headers)
+  crusty_rs.infra2csv.network_csv:
+    output_path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/network_{{ inventory_hostname }}.csv"
+    include_headers: false
+    skip_loopback: "{{ skip_loopback | default(false) }}"
+  register: network_result
+
+- name: Fetch network data to controller
+  fetch:
+    src: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/network_{{ inventory_hostname }}.csv"
+    dest: "{{ controller_output_path | default('/tmp/infra2csv') }}/raw/"
+    flat: yes
+  when: network_result.entries > 0
+
+- name: Cleanup network file on target
+  file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/network_{{ inventory_hostname }}.csv"
+    state: absent
+  when: cleanup_target | default(true)

@@ -1,0 +1,10 @@
+---
+# Merge Results Role Defaults
+controller_output_path: "/tmp/infra2csv"
+merge_hardware: true
+merge_network: true
+merge_storage: true
+merge_users: true
+merge_security: true
+merge_filesystem: true
+cleanup_raw_files: true

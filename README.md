@@ -1,66 +1,89 @@
 
-# infra2csv - Infra Data to CSV
+# crusty_rs.infra2csv
 
-A minimal Ansible collection to gather system infrastructure data and export it to CSV. Ideal for automation, audits, and data pipelines.
+**Target-first infrastructure data collection for Ansible.**  
+Think roles, not modules.
 
-**Made by:** Yasir Alsahli (Jr. Linux Engineer | Rust Dev)  
-**Props to:** Red Hat + Ansible communities
+**Made by:** Yasir Hamadi Alsahli (Jr. Linux Engineer | Rust Dev)  
+**Props to:** Ansible & Linux communities
 
 ---
 
-## Features
+## ✦ What It Does
 
-- Handles broken commands, weird distros
-- Shared logic via `module_utils`
-- Validated CSV schema
+Collects host-level data (hardware, network, users, etc.) into clean CSVs on the controller. Each role handles a single domain. No manual aggregation.
+
+## ✦ Key Features
+
+- Handles odd distros & missing tools gracefully (returns "N/A")
+- CSV schema validation ensures consistent outputs
 - Check mode support
-- Collects hardware, net, storage, users, security, FS health
-- CSV or pretty table output
-- Tested, clean, ready to go
+- Pretty-table or CSV output formats
+- Shared utilities via `module_utils`
+- Designed for audits, automation, analytics pipelines
 
----
+## ✦ Core Idea
 
-## Modules
+You work with **roles**, not modules.  
+Each role = one domain of system data.
 
-| Module              | Description                            |
-|---------------------|----------------------------------------|
-| `hardware_csv`      | CPU, RAM, uptime, etc.                 |
-| `network_csv`       | Interfaces, MACs, MTU, speed           |
-| `storage_csv`       | FS usage + block device info           |
-| `users_csv`         | User accounts, sudo, cron              |
-| `security_baseline` | SELinux, firewalld, SSH, sudo config   |
-| `filesystem_health` | fsck results and health checks         |
+**Included roles:**
+- `hardware`: CPU, RAM, uptime
+- `network`: interfaces, MACs
+- `storage`: filesystems or block devices
+- `users`: users, sudo, cron
+- `security`: firewall, SSH, SELinux
+- `filesystem_health`: fsck, mount health
+- `merge_results`: assembles CSVs, cleans up
 
----
+## ✦ Install
 
-## Output Formats
+```bash
+ansible-galaxy collection install crusty_rs.infra2csv
+```
 
-| Format  | Description                |
-|---------|----------------------------|
-| `csv`   | Structured CSV (default)   |
-| `table` | Human-readable output      |
+## ✦ Usage
+
+**Full audit:**
+```yaml
+- hosts: all
+  become: true
+  roles:
+    - crusty_rs.infra2csv.hardware
+    - crusty_rs.infra2csv.network
+    - crusty_rs.infra2csv.storage
+    - crusty_rs.infra2csv.users
+    - crusty_rs.infra2csv.security
+    - crusty_rs.infra2csv.filesystem_health
+    - crusty_rs.infra2csv.merge_results
+```
+
+**Selective collection:**
+```yaml
+- hosts: webservers
+  become: true
+  roles:
+    - crusty_rs.infra2csv.hardware
+    - crusty_rs.infra2csv.security
+    - crusty_rs.infra2csv.merge_results
+```
+
+**CLI:**
+```bash
+ansible-playbook -i inventory site.yml
+ansible-playbook -i inventory site.yml -e "controller_output_path=/opt/audit_data"
+ansible-playbook -i inventory site.yml -e "infra_output_path=/var/tmp/collection"
+```
+
+## ✦ Output Formats
 
 ```yaml
-- name: Preview hardware info
+- name: Show hardware table
   crusty_rs.infra2csv.hardware_csv:
     output_format: table
 ```
 
----
-
-## CSV Fields
-
-Each module returns a structured list of fields. Example (hardware):
-
-```text
-hostname, ip, os, os_version, arch, cpu, ram_gb, uptime_sec, ...
-```
-
-Others follow a similar format with their relevant metrics.
-
----
-
-## Directory Structure
+## ✦ Directory Structure
 
 ```
 collections/
@@ -74,78 +97,63 @@ collections/
 ```
 
 Includes:
-- `infra2csv_playbook.yml` – deploy it  
-- `test_infra2csv.yml` – run tests  
-- `install_infra2csv.sh` – helper installer  
-- `galaxy.yml`, `requirements.yml`, etc.
+- `infra2csv_playbook.yml`, `test_infra2csv.yml`
+- `install_infra2csv.sh`, `galaxy.yml`, `requirements.yml`
 
----
+## ✦ Configuration
 
-## Usage Example
+**Global vars:**
+| Variable               | Default              | Purpose                          |
+|------------------------|----------------------|----------------------------------|
+| `infra_output_path`    | `$HOME/infra2csv`    | Temp files on targets            |
+| `controller_output_path` | `/tmp/infra2csv`   | Final CSVs on controller         |
+| `cleanup_target`       | `true`               | Auto-cleanup on target hosts     |
 
+**Example group vars:**
+```ini
+[databases:vars]
+controller_output_path=/data/db_audit
+include_system_users=true
+```
+
+**Per-role config:**
 ```yaml
-- name: Collect Infra
-  hosts: all
+- hosts: all
   become: true
-  tasks:
-    - name: Get hardware
-      crusty_rs.infra2csv.hardware_csv:
-        csv_path: /var/lib/infra2csv/hardware.csv
+  vars:
+    skip_loopback: true
+    storage_mode: device
+    include_system_users: true
+  roles:
+    - crusty_rs.infra2csv.network
+    - crusty_rs.infra2csv.storage
+    - crusty_rs.infra2csv.users
+    - crusty_rs.infra2csv.merge_results
 ```
 
----
+## ✦ How It Works
 
-## Quick Start
+- Role runs module → writes to target filesystem (no headers)
+- Controller pulls raw CSVs
+- `merge_results` adds headers & combines files
+- Cleanup removes temp data
 
-```bash
-bash install_infra2csv.sh
+## ✦ Output Example
 
-# Move modules
-cp *.py ~/collections/.../modules/
-cp infra2csv_utils.py ~/collections/.../module_utils/
-
-# Export path
-echo 'export ANSIBLE_COLLECTIONS_PATH=~/collections:$ANSIBLE_COLLECTIONS_PATH' >> ~/.bashrc
-source ~/.bashrc
-
-# Test + Deploy
-ansible-doc crusty_rs.infra2csv.hardware_csv
-ansible-playbook test_infra2csv.yml
-ansible-playbook -i inventory infra2csv_playbook.yml
+```
+/tmp/infra2csv/
+├── hardware.csv
+├── network.csv
+├── storage.csv
+├── users.csv
+├── security.csv
+└── filesystem.csv
 ```
 
----
+- Header row + data rows (with hostnames, timestamps)
+- Predictable structure every time
 
-## Highlights
-
-### Resilient
-
-- Gracefully handles missing tools
-- Fallbacks for most cases
-- Doesn’t crash – returns `"N/A"`
-
-### Clean Core
-
-```python
-from ansible.module_utils.infra2csv_utils import (
-    run_cmd, write_csv, validate_schema
-)
-```
-
-### Reliable
-
-- Check mode support
-- Helpful errors
-- Always timestamps
-
-### Works Anywhere
-
-- Runs on VMs, containers, cloudy stuff
-- No `dmidecode`? No problem.
-
----
-
-## Analytics Pipeline Flow
+## ✦ Analytics Pipeline
 
 ```
 Linux → Ansible → CSV → Power BI
@@ -153,28 +161,14 @@ Linux → Ansible → CSV → Power BI
      Valid     Clean     Visuals
 ```
 
----
+## ✦ Requirements
 
-## Customization
+- Ansible 2.9+
+- Python 3.6+ on target hosts
+- SSH access & write perms on controller
 
-Add fields:
 
-```python
-HARDWARE_FIELDS = ["...", "your_field"]
-```
 
-Change output dir:
 
-```yaml
-vars:
-  csv_base_dir: /custom/path
-```
-
-Skip modules:
-
-```yaml
-vars:
-  collect_users: false
-  collect_security: false
-```
+Work with roles. Let modules handle the details.
 

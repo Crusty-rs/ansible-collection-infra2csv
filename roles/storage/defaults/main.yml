@@ -1,0 +1,7 @@
+---
+# Storage Role Defaults
+infra_output_path: "{{ ansible_env.HOME }}/infra2csv"
+controller_output_path: "/tmp/infra2csv"
+storage_mode: "filesystem"  # or "device"
+include_lvm: false
+cleanup_target: true

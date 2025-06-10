@@ -1,0 +1,51 @@
+---
+# Selective Infrastructure Collection Examples
+
+# Hardware and Security Only
+- name: Hardware and Security Audit
+  hosts: all
+  become: true
+  roles:
+    - crusty_rs.infra2csv.hardware
+    - crusty_rs.infra2csv.security
+    - role: crusty_rs.infra2csv.merge_results
+      vars:
+        merge_network: false
+        merge_storage: false
+        merge_users: false
+        merge_filesystem: false
+
+---
+# Network and Storage Only  
+- name: Network and Storage Inventory
+  hosts: all
+  become: true
+  vars:
+    skip_loopback: true
+    storage_mode: "device"
+  roles:
+    - crusty_rs.infra2csv.network
+    - crusty_rs.infra2csv.storage
+    - role: crusty_rs.infra2csv.merge_results
+      vars:
+        merge_hardware: false
+        merge_users: false
+        merge_security: false
+        merge_filesystem: false
+
+---
+# Users and Security (Compliance Focus)
+- name: User and Security Compliance
+  hosts: all
+  become: true
+  vars:
+    include_system_users: true
+  roles:
+    - crusty_rs.infra2csv.users
+    - crusty_rs.infra2csv.security
+    - role: crusty_rs.infra2csv.merge_results
+      vars:
+        merge_hardware: false
+        merge_network: false
+        merge_storage: false
+        merge_filesystem: false
