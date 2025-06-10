@@ -41,7 +41,6 @@ tags:
   - ansible_collection
 
 dependencies: {}
-
 repository: https://github.com/Crusty-rs/ansible-collection-infra2csv
 documentation: https://github.com/Crusty-rs/ansible-collection-infra2csv/wiki
 homepage: https://github.com/Crusty-rs/ansible-collection-infra2csv

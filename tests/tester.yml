@@ -1,0 +1,337 @@
+---
+# infra2csv Complete Testing Suite
+# Download and run: ansible-playbook test_infra2csv.yml
+
+- name: "Test Suite: infra2csv Collection Validation"
+  hosts: localhost
+  gather_facts: true
+  become: false
+  vars:
+    test_base_path: "/tmp/infra2csv_tests"
+    test_results_path: "{{ test_base_path }}/results"
+    test_timestamp: "{{ ansible_date_time.epoch }}"
+    
+  tasks:
+    - name: "Setup: Create test directories"
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ test_base_path }}"
+        - "{{ test_results_path }}"
+        - "{{ test_base_path }}/test1_single"
+        - "{{ test_base_path }}/test2_multi" 
+        - "{{ test_base_path }}/test3_custom"
+        - "{{ test_base_path }}/test4_selective"
+
+    - name: "Test 1: Single Role Execution (Hardware)"
+      block:
+        - name: Run hardware role only
+          include_role:
+            name: crusty_rs.infra2csv.hardware
+          vars:
+            infra_output_path: "{{ test_base_path }}/test1_single"
+            controller_output_path: "{{ test_results_path }}/test1"
+            cleanup_target: false
+            
+        - name: Run merge for single role
+          include_role:
+            name: crusty_rs.infra2csv.merge_results
+          vars:
+            controller_output_path: "{{ test_results_path }}/test1"
+            merge_network: false
+            merge_storage: false
+            merge_users: false
+            merge_security: false
+            merge_filesystem: false
+            
+        - name: Validate hardware CSV
+          stat:
+            path: "{{ test_results_path }}/test1/hardware.csv"
+          register: test1_hardware
+          
+        - name: Count hardware CSV lines
+          shell: wc -l < "{{ test_results_path }}/test1/hardware.csv"
+          register: test1_lines
+          
+        - name: Test 1 Results
+          debug:
+            msg: 
+              - "Test 1 - Single Role (Hardware)"
+              - "File exists: {{ test1_hardware.stat.exists }}"
+              - "Line count: {{ test1_lines.stdout }} (should be 2: header + data)"
+              - "Status: {{ 'PASS' if (test1_hardware.stat.exists and test1_lines.stdout|int == 2) else 'FAIL' }}"
+
+    - name: "Test 2: Multiple Roles Execution"
+      block:
+        - name: Run hardware and network roles
+          include_role:
+            name: "{{ item }}"
+          loop:
+            - crusty_rs.infra2csv.hardware
+            - crusty_rs.infra2csv.network
+          vars:
+            infra_output_path: "{{ test_base_path }}/test2_multi"
+            controller_output_path: "{{ test_results_path }}/test2"
+            cleanup_target: false
+            skip_loopback: true
+            
+        - name: Run merge for multiple roles
+          include_role:
+            name: crusty_rs.infra2csv.merge_results
+          vars:
+            controller_output_path: "{{ test_results_path }}/test2"
+            merge_storage: false
+            merge_users: false
+            merge_security: false
+            merge_filesystem: false
+            
+        - name: Count CSV files created
+          find:
+            paths: "{{ test_results_path }}/test2"
+            patterns: "*.csv"
+          register: test2_files
+          
+        - name: Test 2 Results
+          debug:
+            msg:
+              - "Test 2 - Multiple Roles (Hardware + Network)"
+              - "CSV files created: {{ test2_files.files | length }} (should be 2)"
+              - "Files: {{ test2_files.files | map(attribute='path') | map('basename') | list }}"
+              - "Status: {{ 'PASS' if test2_files.files | length == 2 else 'FAIL' }}"
+
+    - name: "Test 3: Custom Parameters"
+      block:
+        - name: Run users role with system users
+          include_role:
+            name: crusty_rs.infra2csv.users
+          vars:
+            infra_output_path: "{{ test_base_path }}/test3_custom"
+            controller_output_path: "{{ test_results_path }}/test3"
+            cleanup_target: false
+            include_system_users: true
+            
+        - name: Run merge for users
+          include_role:
+            name: crusty_rs.infra2csv.merge_results
+          vars:
+            controller_output_path: "{{ test_results_path }}/test3"
+            merge_hardware: false
+            merge_network: false
+            merge_storage: false
+            merge_security: false
+            merge_filesystem: false
+            
+        - name: Check for root user in output
+          shell: grep -c "root" "{{ test_results_path }}/test3/users.csv" || echo "0"
+          register: test3_root_check
+          
+        - name: Test 3 Results
+          debug:
+            msg:
+              - "Test 3 - Custom Parameters (Include System Users)"
+              - "Root user found: {{ test3_root_check.stdout|int > 0 }}"
+              - "Root occurrences: {{ test3_root_check.stdout }}"
+              - "Status: {{ 'PASS' if test3_root_check.stdout|int > 0 else 'FAIL' }}"
+
+    - name: "Test 4: Selective Collection"
+      block:
+        - name: Run security and storage roles
+          include_role:
+            name: "{{ item }}"
+          loop:
+            - crusty_rs.infra2csv.security
+            - crusty_rs.infra2csv.storage
+          vars:
+            infra_output_path: "{{ test_base_path }}/test4_selective"
+            controller_output_path: "{{ test_results_path }}/test4"
+            cleanup_target: false
+            storage_mode: "filesystem"
+            
+        - name: Run selective merge
+          include_role:
+            name: crusty_rs.infra2csv.merge_results
+          vars:
+            controller_output_path: "{{ test_results_path }}/test4"
+            merge_hardware: false
+            merge_network: false
+            merge_users: false
+            merge_filesystem: false
+            
+        - name: Check selective files
+          stat:
+            path: "{{ test_results_path }}/test4/{{ item }}.csv"
+          register: test4_files
+          loop:
+            - security
+            - storage
+            
+        - name: Test 4 Results
+          debug:
+            msg:
+              - "Test 4 - Selective Collection (Security + Storage)"
+              - "Security CSV: {{ test4_files.results[0].stat.exists }}"
+              - "Storage CSV: {{ test4_files.results[1].stat.exists }}"
+              - "Status: {{ 'PASS' if (test4_files.results[0].stat.exists and test4_files.results[1].stat.exists) else 'FAIL' }}"
+
+    - name: "Test 5: Full Collection Test"
+      block:
+        - name: Run all data collection roles
+          include_role:
+            name: "{{ item }}"
+          loop:
+            - crusty_rs.infra2csv.hardware
+            - crusty_rs.infra2csv.network
+            - crusty_rs.infra2csv.storage
+            - crusty_rs.infra2csv.users
+            - crusty_rs.infra2csv.security
+            - crusty_rs.infra2csv.filesystem_health
+          vars:
+            infra_output_path: "{{ test_base_path }}/test5_full"
+            controller_output_path: "{{ test_results_path }}/test5"
+            cleanup_target: true  # Test cleanup
+            
+        - name: Run full merge
+          include_role:
+            name: crusty_rs.infra2csv.merge_results
+          vars:
+            controller_output_path: "{{ test_results_path }}/test5"
+            
+        - name: Count all CSV files
+          find:
+            paths: "{{ test_results_path }}/test5"
+            patterns: "*.csv"
+          register: test5_all_files
+          
+        - name: Check cleanup worked
+          find:
+            paths: "{{ test_base_path }}/test5_full"
+            patterns: "*_{{ inventory_hostname }}.csv"
+          register: test5_cleanup_check
+          
+        - name: Test 5 Results
+          debug:
+            msg:
+              - "Test 5 - Full Collection"
+              - "Total CSV files: {{ test5_all_files.files | length }} (should be 6)"
+              - "Target cleanup: {{ 'SUCCESS' if test5_cleanup_check.files | length == 0 else 'FAILED' }}"
+              - "Files created: {{ test5_all_files.files | map(attribute='path') | map('basename') | sort | list }}"
+              - "Status: {{ 'PASS' if test5_all_files.files | length == 6 else 'FAIL' }}"
+
+    - name: "Test 6: Performance Test"
+      block:
+        - name: Record start time
+          set_fact:
+            perf_start: "{{ ansible_date_time.epoch | int }}"
+            
+        - name: Run performance test collection
+          include_role:
+            name: "{{ item }}"
+          loop:
+            - crusty_rs.infra2csv.hardware
+            - crusty_rs.infra2csv.network
+            - crusty_rs.infra2csv.merge_results
+          vars:
+            infra_output_path: "{{ test_base_path }}/test6_perf"
+            controller_output_path: "{{ test_results_path }}/test6"
+            merge_storage: false
+            merge_users: false
+            merge_security: false
+            merge_filesystem: false
+            
+        - name: Record end time
+          set_fact:
+            perf_end: "{{ ansible_date_time.epoch | int }}"
+            
+        - name: Calculate execution time
+          set_fact:
+            perf_duration: "{{ perf_end | int - perf_start | int }}"
+            
+        - name: Test 6 Results
+          debug:
+            msg:
+              - "Test 6 - Performance Test"
+              - "Execution time: {{ perf_duration }} seconds"
+              - "Performance: {{ 'GOOD' if perf_duration | int < 60 else 'SLOW' }}"
+              - "Status: {{ 'PASS' if perf_duration | int < 120 else 'FAIL' }}"
+
+    - name: "Generate Test Report"
+      block:
+        - name: Create test summary
+          copy:
+            content: |
+              # infra2csv Test Results - {{ ansible_date_time.iso8601 }}
+              
+              ## Test Environment
+              - Hostname: {{ inventory_hostname }}
+              - OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+              - Ansible Version: {{ ansible_version.full }}
+              - Test Base Path: {{ test_base_path }}
+              
+              ## Test Results Summary
+              Run `ansible-playbook test_infra2csv.yml -v` to see detailed results.
+              
+              ## Manual Verification Commands
+              ```bash
+              # Check all test outputs
+              find {{ test_results_path }} -name "*.csv" -exec wc -l {} +
+              
+              # View sample data
+              head -5 {{ test_results_path }}/test5/*.csv
+              
+              # Check file sizes
+              ls -lh {{ test_results_path }}/test5/
+              
+              # Verify headers
+              head -1 {{ test_results_path }}/test5/*.csv
+              ```
+              
+              ## Expected Results
+              - Test 1: 1 CSV file (hardware.csv) with 2 lines
+              - Test 2: 2 CSV files (hardware.csv, network.csv)
+              - Test 3: 1 CSV file (users.csv) containing root user
+              - Test 4: 2 CSV files (security.csv, storage.csv)
+              - Test 5: 6 CSV files (all types) with cleanup verification
+              - Test 6: Performance under 60 seconds (good), under 120 seconds (acceptable)
+              
+            dest: "{{ test_results_path }}/TEST_REPORT.md"
+            
+        - name: Final Test Summary
+          debug:
+            msg:
+              - "========================================"
+              - "        infra2csv Test Suite Complete"
+              - "========================================"
+              - ""
+              - "Test results saved to: {{ test_results_path }}"
+              - ""
+              - "Quick verification:"
+              - "  find {{ test_results_path }} -name '*.csv' | wc -l"
+              - ""
+              - "View detailed report:"
+              - "  cat {{ test_results_path }}/TEST_REPORT.md"
+              - ""
+              - "All tests completed. Check output above for PASS/FAIL status."
+              - "========================================"
+
+# Optional: Add cleanup task
+- name: "Cleanup Test Data (Optional)"
+  hosts: localhost
+  gather_facts: false
+  vars:
+    test_base_path: "/tmp/infra2csv_tests"
+  tasks:
+    - name: Prompt for cleanup
+      pause:
+        prompt: "Do you want to cleanup test data at {{ test_base_path }}? (y/N)"
+      register: cleanup_prompt
+      when: ansible_is_check_mode is not defined
+      
+    - name: Remove test directory
+      file:
+        path: "{{ test_base_path }}"
+        state: absent
+      when: 
+        - cleanup_prompt is defined
+        - cleanup_prompt.user_input | lower == 'y'
