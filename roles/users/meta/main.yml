@@ -1,0 +1,54 @@
+---
+galaxy_info:
+  author: yasir hamadi alsahli
+  description: Infrastructure hardware data collection role for CSV export
+  company: Crusty
+  license: GPL-2.0-or-later
+  min_ansible_version: "2.1"
+  platforms:
+    - name: EL
+      versions:
+        - "7"
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+    - name: Fedora
+      versions:
+        - "38"
+        - "39"
+        - "40"
+    - name: opensuse
+      versions:
+        - "15.4"
+        - "15.5"
+  galaxy_tags:
+    - infrastructure
+    - monitoring
+    - csv
+    - data-collection
+    - hardware
+    - system-info
+    - automation
+    - reporting
+    - inventory
+    - linux
+    - servers
+    - devops
+    - sysadmin
+    - audit
+    - compliance
+    - discovery
+    - metrics
+    - analysis
+    - export
+    - management
+
+dependencies: []
