@@ -1,7 +1,7 @@
 
 # crusty_rs.infra2csv
 
-**Target-first infrastructure data collection for Ansible.**  
+**Simple infrastructure to csv data collection for Ansible.**  
 Think not only of modules, but also roles
 
 **Made by:** Yasir Hamadi Alsahli (Jr. Linux Engineer | Rust Dev)  
@@ -24,7 +24,7 @@ Collects host-level data (hardware, network, users, etc.) into clean CSVs on the
 
 ## ✦ Core Idea
 
-You work with **roles**, not modules.  
+You work with **roles**, with modules in the background.  
 Each role = one domain of system data.
 
 **Included roles:**

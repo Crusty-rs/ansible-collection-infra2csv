@@ -2,59 +2,57 @@
 namespace: crusty_rs
 name: infra2csv
 version: 1.0.0
-
 readme: README.md
-authors:
-  - Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
-description: >
-  Write/Collects system info from all your hosts into structured CSVs on the control node (via role).
-  No Jinja loops, no remote writes. Just clean, centralized facts across 7 categories:
-  Hardware, network, storage, users, security, filesystem health, and schedulers.
-  Built for audits, reporting, asset tracking, and migrations. Simple, expandable, and
-  Made for real-world Linux ops.
-  Please note - main role is the key player here
+authors:
+  - yasir hamadi alsahli <crusty.rusty.engine@gmail.com>
+
+description: >-
+  Infrastructure data collection and auditing collection for Ansible.
+  Collects hardware, network, storage, security, and user information
+  from target systems and exports to CSV/JSON formats. Enhanced version 6
+  with improved compatibility for Rocky Linux, Alma Linux, and minimal environments.
 
 license:
-  - MIT
+  - GPL-3.0-or-later
+
+license_file: ''
 
 tags:
   - infrastructure
-  - monitoring
-  - inventory
+  - audit
   - csv
-  - reporting
-  - auditing
-  - dashboards
-  - observability
-  - powerbi
-  - grafana
-  - fact_collection
-  - data_export
+  - monitoring
   - hardware
-  - storage
   - network
+  - storage
   - security
-  - linux
-  - discovery
-  - cloud_inventory
-  - ansible_collection
+  - users
+  - reporting
+  - data_collection
+  - system_info
+  - compliance
+  - inventory
 
 dependencies: {}
-repository: https://github.com/Crusty-rs/ansible-collection-infra2csv
-documentation: https://github.com/Crusty-rs/ansible-collection-infra2csv/wiki
-homepage: https://github.com/Crusty-rs/ansible-collection-infra2csv
-issues: https://github.com/Crusty-rs/ansible-collection-infra2csv/issues
+
+repository: https://github.com/crusty-rs/ansible-collection-infra2csv
+documentation: https://github.com/crusty-rs/ansible-collection-infra2csv
+homepage: https://github.com/crusty-rs/ansible-collection-infra2csv
+issues: https://github.com/crusty-rs/ansible-collection-infra2csv/issues
 
 build_ignore:
-  - .gitignore
-  - .git
-  - .github
-  - .vscode
   - '*.pyc'
-  - __pycache__
-  - tests/output
-  - docs/build
-  - tester.sh
-  - test_*.yml
-
+  - '*.retry'
+  - '.git'
+  - '.gitignore'
+  - '.DS_Store'
+  - 'tests/'
+  - 'test_*'
+  - '*.tar.gz'
+  - 'tmp/'
+  - '.ansible'
+  - '__pycache__'
+  - '*.tmp'
+  - '.vscode'
+  - '.idea'

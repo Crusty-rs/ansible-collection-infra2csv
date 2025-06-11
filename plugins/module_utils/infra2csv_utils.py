@@ -1,12 +1,20 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
+
+# Copyright: (c) 2025, yasir hamadi alsahli <crusty.rusty.engine@gmail.com>
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+
 """
-Enhanced Infrastructure Data Collection Utilities
+Enhanced Infrastructure Data Collection Utilities - Version 6
 Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 Shared utilities for robust cross-platform data collection.
 Enhanced command execution with better error handling.
+Improved compatibility with Rocky, Alma, and minimal environments.
 """
+
+from __future__ import (absolute_import, division, print_function)
+__metaclass__ = type
 
 import os
 import subprocess
@@ -54,6 +62,17 @@ def get_hostname():
         import socket
         return socket.gethostname()
     except Exception:
+        # Fallback methods
+        try:
+            with open('/etc/hostname', 'r') as f:
+                return f.read().strip()
+        except:
+            try:
+                result = subprocess.run(['hostname'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    return result.stdout.strip()
+            except:
+                pass
         return "unknown"
 
 
@@ -319,3 +338,129 @@ def parse_df_output(df_line):
     except Exception:
         pass
     return None
+
+
+def get_memory_from_proc():
+    """Get memory information from /proc/meminfo."""
+    memory_info = {
+        'total': 0,
+        'available': 0,
+        'free': 0
+    }
+    
+    try:
+        with open('/proc/meminfo', 'r') as f:
+            for line in f:
+                if line.startswith('MemTotal:'):
+                    memory_info['total'] = safe_int_convert(line.split()[1]) * 1024  # KB to bytes
+                elif line.startswith('MemAvailable:'):
+                    memory_info['available'] = safe_int_convert(line.split()[1]) * 1024
+                elif line.startswith('MemFree:'):
+                    memory_info['free'] = safe_int_convert(line.split()[1]) * 1024
+    except Exception:
+        pass
+    
+    return memory_info
+
+
+def get_cpu_count_from_proc():
+    """Get CPU count from /proc/cpuinfo."""
+    try:
+        with open('/proc/cpuinfo', 'r') as f:
+            content = f.read()
+            return len([line for line in content.splitlines() if line.startswith('processor')])
+    except Exception:
+        return 0
+
+
+def format_timestamp(timestamp_str=None):
+    """Format timestamp consistently."""
+    if timestamp_str:
+        try:
+            # Try to parse and reformat
+            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            return dt.isoformat()
+        except:
+            return timestamp_str
+    else:
+        return datetime.now().isoformat()
+
+
+def clean_string_for_csv(value):
+    """Clean string value for CSV output."""
+    if value is None:
+        return 'N/A'
+    
+    # Convert to string
+    str_value = str(value).strip()
+    
+    # Replace problematic characters
+    str_value = str_value.replace('\n', ' ').replace('\r', ' ')
+    str_value = str_value.replace(',', ';')  # Avoid CSV delimiter issues
+    
+    # Limit length for CSV compatibility
+    if len(str_value) > 500:
+        str_value = str_value[:497] + '...'
+    
+    return str_value if str_value else 'N/A'
+
+
+def is_virtual_filesystem(device_name, mount_point):
+    """Check if filesystem is virtual/special."""
+    virtual_devices = [
+        'tmpfs', 'devtmpfs', 'sysfs', 'proc', 'devpts', 
+        'cgroup', 'pstore', 'mqueue', 'hugetlbfs',
+        'debugfs', 'tracefs', 'securityfs', 'fusectl'
+    ]
+    
+    virtual_mounts = [
+        '/dev', '/sys', '/proc', '/run', '/tmp/systemd-private-'
+    ]
+    
+    # Check device type
+    for vdev in virtual_devices:
+        if device_name.startswith(vdev):
+            return True
+    
+    # Check mount point
+    for vmount in virtual_mounts:
+        if mount_point.startswith(vmount):
+            return True
+    
+    # Check snap mounts
+    if device_name.startswith('/dev/loop') and mount_point.startswith('/snap'):
+        return True
+    
+    return False
+
+
+def get_distribution_info():
+    """Get Linux distribution information."""
+    dist_info = {
+        'name': 'Unknown',
+        'version': 'Unknown',
+        'codename': 'Unknown'
+    }
+    
+    # Try /etc/os-release first
+    os_release = read_file_safe('/etc/os-release', '')
+    if os_release:
+        for line in os_release.splitlines():
+            if line.startswith('NAME='):
+                dist_info['name'] = line.split('=', 1)[1].strip('"')
+            elif line.startswith('VERSION='):
+                dist_info['version'] = line.split('=', 1)[1].strip('"')
+            elif line.startswith('VERSION_CODENAME='):
+                dist_info['codename'] = line.split('=', 1)[1].strip('"')
+    
+    return dist_info
+
+
+def ensure_directory_exists(filepath):
+    """Ensure parent directory exists for file."""
+    try:
+        path_obj = Path(filepath).resolve()
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+        return True
+    except Exception:
+        return False

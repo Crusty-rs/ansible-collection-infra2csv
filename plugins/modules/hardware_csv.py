@@ -1,82 +1,138 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-"""
-Hardware Facts Collection Module - Fixed for existing utils
-Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
-Target-only hardware collection. Works with existing write_csv function.
-Supports CSV and JSON output. Zero controller dependencies.
-"""
+# Copyright: (c) 2025, yasir hamadi alsahli <crusty.rusty.engine@gmail.com>
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from __future__ import (absolute_import, division, print_function)
+__metaclass__ = type
+
+DOCUMENTATION = r'''
+---
+module: hardware_csv
+short_description: Collect hardware information from target systems
+description:
+    - Gathers comprehensive hardware information
+    - Includes CPU, memory, and system details
+    - Supports CSV and JSON output formats
+    - Enhanced error handling for minimal environments
+    - Version 6 with improved compatibility
+version_added: "1.0.0"
+author:
+    - yasir hamadi alsahli (@crusty.rusty.engine)
+options:
+    output_path:
+        description: 
+            - Output file path for hardware data
+            - Supports .csv and .json file extensions
+        required: true
+        type: str
+    include_headers:
+        description: 
+            - Include CSV headers in output
+            - Ignored for JSON output format
+        required: false
+        type: bool
+        default: true
+requirements:
+    - Target systems must be Linux-based
+    - Python 3.6+ on target systems
+notes:
+    - Module runs on target hosts, not controller
+    - Handles missing hardware detection tools gracefully
+    - Compatible with minimal container environments
+    - Version 6 with enhanced Rocky/Alma compatibility
+seealso:
+    - module: ansible.builtin.setup
+    - module: crusty_rs.infra2csv.network_csv
+'''
+
+EXAMPLES = r'''
+# Basic hardware collection to CSV
+- name: Collect hardware information
+  crusty_rs.infra2csv.hardware_csv:
+    output_path: /tmp/hardware.csv
+
+# Hardware audit with custom path
+- name: Hardware audit to custom location
+  crusty_rs.infra2csv.hardware_csv:
+    output_path: /opt/audit/hardware_{{ ansible_date_time.date }}.csv
+    include_headers: true
+
+# Hardware data to JSON format
+- name: Hardware snapshot
+  crusty_rs.infra2csv.hardware_csv:
+    output_path: /tmp/hardware.json
+
+# Complete hardware audit playbook
+- name: Infrastructure hardware audit
+  hosts: all
+  tasks:
+    - name: Collect hardware information
+      crusty_rs.infra2csv.hardware_csv:
+        output_path: /tmp/hardware_{{ inventory_hostname }}.csv
+'''
+
+RETURN = r'''
+changed:
+    description: Whether the module made changes
+    type: bool
+    returned: always
+    sample: true
+msg:
+    description: Human readable message about the operation
+    type: str
+    returned: always
+    sample: "Hardware data written to /tmp/hardware.csv"
+entries:
+    description: Number of data entries written
+    type: int
+    returned: success
+    sample: 1
+data:
+    description: The hardware data that was collected
+    type: dict
+    returned: success
+    sample:
+        hostname: "server01"
+        cpu_cores: "8"
+        cpu_model: "Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz"
+        memory_total_gb: "16.0"
+        memory_available_gb: "12.5"
+        architecture: "x86_64"
+        kernel_version: "5.4.0-74-generic"
+        timestamp: "2025-06-11T10:30:45"
+'''
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.infra2csv_utils import (
-    run_cmd, get_hostname, get_ip_address, get_run_user, get_timestamp,
-    write_csv, validate_schema, read_file_safe, get_bin_path_safe, HARDWARE_FIELDS
+from ansible_collections.crusty_rs.infra2csv.plugins.module_utils.infra2csv_utils import (
+    run_cmd, get_hostname, get_timestamp, write_csv,
+    validate_schema, read_file_safe, HARDWARE_FIELDS,
+    bytes_to_gb, safe_float_convert, safe_int_convert
 )
-import platform
 import os
+import re
 import json
 from pathlib import Path
 
-DOCUMENTATION = '''
----
-module: hardware_csv
-short_description: Collect hardware info and write locally
-description: |
-  Writes/Gathers system hardware information and writes directly to target host (get collected back & cleaned).
-  Supports CSV and JSON output based on file extension.
-  Works on physical, virtual, and containerized systems.
-options:
-  output_path:
-    description: Output file path (.csv or .json)
-    required: true
-    type: str
-  include_headers:
-    description: Include CSV headers (ignored for JSON)
-    required: false
-    type: bool
-    default: true
-requirements:
-  - Linux operating system
-author:
-  - Yasir Hamadi Alsahli (@crusty.rusty.engine@gmail.com)
-'''
-
-EXAMPLES = '''
-# CSV output with headers
-- name: Collect hardware to CSV
-  hardware_csv:
-    output_path: /tmp/hardware.csv
-    include_headers: true
-
-# JSON output (full data dump)
-- name: Collect hardware to JSON  
-  hardware_csv:
-    output_path: /tmp/hardware.json
-'''
-
-
 def write_data_local(module, path, data, include_headers=True, fieldnames=None):
-    """
-    Local data writer. Handles both CSV and JSON based on extension.
-    Uses existing write_csv function for CSV, adds JSON support.
-    """
+    """Local data writer compatible with existing utils."""
     if not data:
         return 0
-    
+
     try:
         # Create parent directory if needed
         path_obj = Path(path).resolve()
         path_obj.parent.mkdir(parents=True, exist_ok=True)
         clean_path = str(path_obj)
-        
+
         # Detect format from extension
         if clean_path.lower().endswith('.json'):
             return write_json_local(module, clean_path, data)
         else:
             # Use existing write_csv function
             return write_csv(module, clean_path, data, include_headers, fieldnames)
-            
+
     except Exception as e:
         module.fail_json(msg=f"Failed to write data to {path}: {str(e)}")
 
@@ -86,7 +142,7 @@ def write_json_local(module, path, data):
     try:
         # Normalize data to list
         rows = [data] if isinstance(data, dict) else list(data)
-        
+
         # Add metadata
         output_data = {
             'timestamp': get_timestamp(),
@@ -94,18 +150,18 @@ def write_json_local(module, path, data):
             'data_count': len(rows),
             'data': rows
         }
-        
+
         # Atomic write using temp file
         temp_path = f"{path}.tmp.{os.getpid()}"
-        
+
         with open(temp_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
-        
+
         # Atomic move
         os.rename(temp_path, path)
-        
+
         return len(rows)
-        
+
     except Exception as e:
         # Clean up temp file if exists
         temp_path = f"{path}.tmp.{os.getpid()}"
@@ -118,185 +174,138 @@ def write_json_local(module, path, data):
 
 
 def get_cpu_info(module):
-    """Multi-method CPU detection. Never fails."""
-    cpu_info = {
-        'cpu': 'N/A',
-        'cpu_cores': 'N/A', 
-        'cpu_threads': 'N/A'
+    """Get CPU information with multiple detection methods."""
+    cpu_data = {
+        'cpu_cores': 'N/A',
+        'cpu_model': 'N/A'
     }
-    
-    # Method 1: lscpu (preferred)
+
+    # Method 1: /proc/cpuinfo
+    cpuinfo = read_file_safe('/proc/cpuinfo', '')
+    if cpuinfo:
+        # Count processor entries
+        processor_count = len([line for line in cpuinfo.splitlines() if line.startswith('processor')])
+        if processor_count > 0:
+            cpu_data['cpu_cores'] = str(processor_count)
+
+        # Get model name
+        for line in cpuinfo.splitlines():
+            if line.startswith('model name'):
+                model = line.split(':', 1)[1].strip()
+                cpu_data['cpu_model'] = model
+                break
+
+    # Method 2: lscpu command (if available)
     lscpu_output = run_cmd(module, "lscpu", ignore_errors=True)
     if lscpu_output != "N/A":
         for line in lscpu_output.splitlines():
-            if line.startswith('Model name:'):
-                cpu_info['cpu'] = line.split(':', 1)[1].strip()
-            elif line.startswith('Core(s) per socket:'):
-                try:
-                    cores_per_socket = int(line.split(':', 1)[1].strip())
-                    # Get socket count
-                    for sub_line in lscpu_output.splitlines():
-                        if sub_line.startswith('Socket(s):'):
-                            sockets = int(sub_line.split(':', 1)[1].strip())
-                            cpu_info['cpu_cores'] = str(cores_per_socket * sockets)
-                            break
-                    else:
-                        cpu_info['cpu_cores'] = str(cores_per_socket)
-                except (ValueError, IndexError):
-                    pass
-            elif line.startswith('CPU(s):'):
-                cpu_info['cpu_threads'] = line.split(':', 1)[1].strip()
-    
-    # Method 2: /proc/cpuinfo fallback
-    if cpu_info['cpu'] == 'N/A':
-        cpuinfo = read_file_safe('/proc/cpuinfo', '')
-        if cpuinfo:
-            for line in cpuinfo.splitlines():
-                if line.startswith('model name'):
-                    cpu_info['cpu'] = line.split(':', 1)[1].strip()
-                    break
-    
-    # Method 3: Python fallbacks
-    if cpu_info['cpu_threads'] == 'N/A':
-        try:
-            cpu_info['cpu_threads'] = str(os.cpu_count() or 'N/A')
-        except Exception:
-            pass
-    
-    if cpu_info['cpu'] == 'N/A':
-        cpu_info['cpu'] = platform.processor() or 'N/A'
-    
-    return cpu_info
+            if line.startswith('CPU(s):') and cpu_data['cpu_cores'] == 'N/A':
+                cpu_data['cpu_cores'] = line.split(':')[1].strip()
+            elif line.startswith('Model name:') and cpu_data['cpu_model'] == 'N/A':
+                cpu_data['cpu_model'] = line.split(':', 1)[1].strip()
+
+    # Method 3: nproc command for core count
+    if cpu_data['cpu_cores'] == 'N/A':
+        nproc_output = run_cmd(module, "nproc", ignore_errors=True)
+        if nproc_output != "N/A":
+            cpu_data['cpu_cores'] = nproc_output.strip()
+
+    return cpu_data
 
 
 def get_memory_info(module):
-    """RAM detection with multiple methods."""
-    # Method 1: sysconf (fastest)
-    try:
-        ram = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / (1024.**3)
-        return round(ram, 2)
-    except Exception:
-        pass
-    
-    # Method 2: /proc/meminfo (reliable)
+    """Get memory information with multiple detection methods."""
+    memory_data = {
+        'memory_total_gb': 'N/A',
+        'memory_available_gb': 'N/A'
+    }
+
+    # Method 1: /proc/meminfo
     meminfo = read_file_safe('/proc/meminfo', '')
     if meminfo:
         for line in meminfo.splitlines():
             if line.startswith('MemTotal:'):
-                try:
-                    kb = int(line.split()[1])
-                    return round(kb / (1024.**2), 2)  # KB to GB
-                except (ValueError, IndexError):
-                    pass
-    
-    return 'N/A'
+                # Convert from KB to GB
+                kb_value = safe_int_convert(line.split()[1])
+                memory_data['memory_total_gb'] = str(bytes_to_gb(kb_value * 1024))
+            elif line.startswith('MemAvailable:'):
+                # Convert from KB to GB
+                kb_value = safe_int_convert(line.split()[1])
+                memory_data['memory_available_gb'] = str(bytes_to_gb(kb_value * 1024))
 
-
-def get_disk_total(module):
-    """Total disk size across all physical devices."""
-    try:
-        output = run_cmd(module, "lsblk -b -d -n -o SIZE,TYPE", use_shell=True)
-        if output != "N/A":
-            total_bytes = 0
-            for line in output.splitlines():
+    # Method 2: free command (if available)
+    free_output = run_cmd(module, "free -b", ignore_errors=True)
+    if free_output != "N/A" and memory_data['memory_total_gb'] == 'N/A':
+        lines = free_output.splitlines()
+        for line in lines:
+            if line.startswith('Mem:'):
                 parts = line.split()
-                if len(parts) >= 2 and parts[1] == 'disk' and parts[0].isdigit():
-                    total_bytes += int(parts[0])
-            if total_bytes > 0:
-                return round(total_bytes / (1024**3), 2)
-    except Exception:
-        pass
-    
-    return 'N/A'
+                if len(parts) >= 7:
+                    total_bytes = safe_int_convert(parts[1])
+                    available_bytes = safe_int_convert(parts[6])  # available column
+                    memory_data['memory_total_gb'] = str(bytes_to_gb(total_bytes))
+                    memory_data['memory_available_gb'] = str(bytes_to_gb(available_bytes))
+                break
+
+    # Fallback: Calculate available as free + buffer + cache if available not found
+    if memory_data['memory_available_gb'] == 'N/A' and memory_data['memory_total_gb'] != 'N/A':
+        free_output = run_cmd(module, "free -b", ignore_errors=True)
+        if free_output != "N/A":
+            lines = free_output.splitlines()
+            for line in lines:
+                if line.startswith('Mem:'):
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        free_bytes = safe_int_convert(parts[3])
+                        memory_data['memory_available_gb'] = str(bytes_to_gb(free_bytes))
+                    break
+
+    return memory_data
 
 
 def get_system_info(module):
-    """Hardware model and serial. Handles VMs gracefully."""
-    info = {
-        'serial_number': 'N/A',
-        'model': 'N/A'
+    """Get system architecture and kernel information."""
+    system_data = {
+        'architecture': 'N/A',
+        'kernel_version': 'N/A'
     }
-    
-    dmidecode_path = get_bin_path_safe(module, 'dmidecode', required=False)
-    if dmidecode_path:
-        info['serial_number'] = run_cmd(
-            module, 
-            [dmidecode_path, '-s', 'system-serial-number'],
-            ignore_errors=True
-        )
-        info['model'] = run_cmd(
-            module,
-            [dmidecode_path, '-s', 'system-product-name'],
-            ignore_errors=True
-        )
-    
-    return info
 
+    # Architecture
+    arch_output = run_cmd(module, "uname -m", ignore_errors=True)
+    if arch_output != "N/A":
+        system_data['architecture'] = arch_output.strip()
 
-def get_boot_info(module):
-    """Uptime and boot time. Multiple detection methods."""
-    info = {
-        'uptime_sec': 'N/A',
-        'boot_time': 'N/A'
-    }
-    
-    # Get uptime in seconds
-    uptime_data = read_file_safe('/proc/uptime', '')
-    if uptime_data:
-        try:
-            info['uptime_sec'] = int(float(uptime_data.split()[0]))
-        except (ValueError, IndexError):
-            pass
-    
-    # Get boot time - try multiple methods
-    boot_time = run_cmd(module, "who -b", use_shell=True, ignore_errors=True)
-    if boot_time != "N/A" and 'system boot' in boot_time:
-        parts = boot_time.split('system boot')
-        if len(parts) > 1:
-            info['boot_time'] = parts[1].strip()
-    
-    if info['boot_time'] == 'N/A':
-        boot_time = run_cmd(module, "uptime -s", ignore_errors=True)
-        if boot_time != "N/A":
-            info['boot_time'] = boot_time
-    
-    return info
+    # Kernel version
+    kernel_output = run_cmd(module, "uname -r", ignore_errors=True)
+    if kernel_output != "N/A":
+        system_data['kernel_version'] = kernel_output.strip()
 
-
-def get_user_count(module):
-    """Count active users."""
-    output = run_cmd(module, "who", ignore_errors=True)
-    if output != "N/A":
-        return str(len(output.splitlines()))
-    return "0"
+    return system_data
 
 
 def collect_hardware_data(module):
-    """Main data collection orchestrator."""
-    data = {
-        'hostname': get_hostname(),
-        'ip': get_ip_address(),
-        'os': platform.system(),
-        'os_version': platform.version(),
-        'arch': platform.machine(),
-        'ram_gb': get_memory_info(module),
-        'disk_total_gb': get_disk_total(module),
-        'user_count': get_user_count(module),
-        'run_by': get_run_user(),
-        'timestamp': get_timestamp()
+    """Main hardware data collection."""
+    hostname = get_hostname()
+    timestamp = get_timestamp()
+
+    # Gather hardware information
+    cpu_info = get_cpu_info(module)
+    memory_info = get_memory_info(module)
+    system_info = get_system_info(module)
+
+    # Build hardware data structure
+    hardware_data = {
+        'hostname': hostname,
+        'cpu_cores': cpu_info['cpu_cores'],
+        'cpu_model': cpu_info['cpu_model'],
+        'memory_total_gb': memory_info['memory_total_gb'],
+        'memory_available_gb': memory_info['memory_available_gb'],
+        'architecture': system_info['architecture'],
+        'kernel_version': system_info['kernel_version'],
+        'timestamp': timestamp
     }
-    
-    # Add CPU info
-    data.update(get_cpu_info(module))
-    
-    # Add system info  
-    data.update(get_system_info(module))
-    
-    # Add boot info
-    data.update(get_boot_info(module))
-    
-    # Validate against schema
-    return validate_schema(module, data, HARDWARE_FIELDS)
+
+    return hardware_data
 
 
 def main():
@@ -308,40 +317,42 @@ def main():
         ),
         supports_check_mode=True
     )
-    
+
     output_path = module.params['output_path']
     include_headers = module.params['include_headers']
-    
+
     try:
         # Collect hardware data
         hardware_data = collect_hardware_data(module)
-        
-        # Check mode - preview only
+
+        # Validate schema
+        hardware_data = validate_schema(module, hardware_data, HARDWARE_FIELDS)
+
+        # Check mode
         if module.check_mode:
             module.exit_json(
                 changed=False,
                 msg="Check mode: data not written",
-                data=hardware_data,
-                output_path=output_path
+                data=hardware_data
             )
-        
-        # Write data locally (CSV or JSON based on extension)
+
+        # Write data locally
         entries = write_data_local(
-            module, 
-            output_path, 
-            hardware_data, 
-            include_headers, 
+            module,
+            output_path,
+            hardware_data,
+            include_headers,
             HARDWARE_FIELDS
         )
-        
-        # Success response
+
+        # Success
         module.exit_json(
             changed=True,
             msg=f"Hardware data written to {output_path}",
             entries=entries,
             data=hardware_data
         )
-        
+
     except Exception as e:
         module.fail_json(msg=f"Hardware collection failed: {str(e)}")
 
