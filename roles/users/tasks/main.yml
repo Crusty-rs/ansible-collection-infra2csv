@@ -1,153 +1,31 @@
----
-- name: "Ensure output directory exists"
-  file:
-    path: "{{ infra_output_path }}"
+# Users Collection Role
+- name: Ensure output directory exists for users data
+  ansible.builtin.file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}"
     state: directory
     mode: '0755'
 
-- name: "Check if getent command exists"
-  command: which getent
-  register: getent_check
-  failed_when: false
-  changed_when: false
+- name: Collect users data (no headers)
+  # This task calls your Python users_csv.py module
+  crusty_rs.infra2csv.users_csv:
+    output_path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/users_{{ inventory_hostname }}.csv"
+    include_headers: false # Headers will be added during the merge on controller
+    # Ensure any user-specific parameters are passed here, e.g.:
+    # include_system_users: true
+  register: users_result
 
-- name: "Check available admin groups"
-  shell: |
-    set -e
-    ADMIN_GROUPS=""
-    
-    # Check for common admin groups
-    {% raw %}
-    if [ "{{ getent_check.rc }}" = "0" ]; then
-        for group in sudo wheel admin root; do
-            if getent group "$group" >/dev/null 2>&1; then
-                if [ -z "$ADMIN_GROUPS" ]; then
-                    ADMIN_GROUPS="$group"
-                else
-                    ADMIN_GROUPS="$ADMIN_GROUPS,$group"
-                fi
-            fi
-        done
-    else
-        # Fallback to checking /etc/group directly
-        for group in sudo wheel admin root; do
-            if grep -q "^${group}:" /etc/group 2>/dev/null; then
-                if [ -z "$ADMIN_GROUPS" ]; then
-                    ADMIN_GROUPS="$group"
-                else
-                    ADMIN_GROUPS="$ADMIN_GROUPS,$group"
-                fi
-            fi
-        done
-    fi
-    {% endraw %}
-    
-    echo "$ADMIN_GROUPS"
-  register: admin_groups_result
-  failed_when: false
-  changed_when: false
-
-- name: "Collect security baseline (no headers)"
-  shell: |
-    set -e
-    
-    # Create temp file for output
-    TEMP_FILE=$(mktemp)
-    
-    # Get hostname
-    HOSTNAME=$(hostname)
-    
-    # Check firewall status (try multiple firewall types)
-    FIREWALL_STATUS="Unknown"
-    if command -v systemctl >/dev/null 2>&1; then
-        if systemctl is-active --quiet ufw 2>/dev/null; then
-            FIREWALL_STATUS="ufw-active"
-        elif systemctl is-active --quiet firewalld 2>/dev/null; then
-            FIREWALL_STATUS="firewalld-active"
-        elif systemctl is-active --quiet iptables 2>/dev/null; then
-            FIREWALL_STATUS="iptables-active"
-        else
-            FIREWALL_STATUS="systemd-inactive"
-        fi
-    else
-        # Check legacy systems
-        if service ufw status >/dev/null 2>&1; then
-            FIREWALL_STATUS="ufw-legacy"
-        elif service iptables status >/dev/null 2>&1; then
-            FIREWALL_STATUS="iptables-legacy"
-        else
-            FIREWALL_STATUS="unknown-legacy"
-        fi
-    fi
-    
-    # SSH configuration check
-    SSH_CONFIG="Unknown"
-    if [ -f /etc/ssh/sshd_config ]; then
-        ROOT_LOGIN=$(grep -i "^PermitRootLogin" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' || echo "default")
-        PASSWORD_AUTH=$(grep -i "^PasswordAuthentication" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' || echo "default")
-        SSH_CONFIG="${ROOT_LOGIN}/${PASSWORD_AUTH}"
-    fi
-    
-    # Admin groups (from previous task)
-    ADMIN_GROUPS="{{ admin_groups_result.stdout | default('none') }}"
-    
-    # SELinux/AppArmor status
-    SECURITY_MODULE="None"
-    if command -v getenforce >/dev/null 2>&1; then
-        SELINUX_STATUS=$(getenforce 2>/dev/null || echo "Unknown")
-        SECURITY_MODULE="SELinux:${SELINUX_STATUS}"
-    elif command -v aa-status >/dev/null 2>&1; then
-        APPARMOR_STATUS=$(aa-status --enabled 2>/dev/null && echo "Enabled" || echo "Disabled")
-        SECURITY_MODULE="AppArmor:${APPARMOR_STATUS}"
-    fi
-    
-    # Package manager security updates (best effort)
-    SECURITY_UPDATES="Unknown"
-    if command -v yum >/dev/null 2>&1; then
-        SEC_COUNT=$(yum list-security 2>/dev/null | grep -c "security" || echo "0")
-        SECURITY_UPDATES="yum:${SEC_COUNT}"
-    elif command -v dnf >/dev/null 2>&1; then
-        SEC_COUNT=$(dnf list-security 2>/dev/null | grep -c "security" || echo "0")
-        SECURITY_UPDATES="dnf:${SEC_COUNT}"
-    elif command -v apt >/dev/null 2>&1; then
-        SEC_COUNT=$(apt list --upgradable 2>/dev/null | grep -c "security" || echo "0")
-        SECURITY_UPDATES="apt:${SEC_COUNT}"
-    fi
-    
-    # Fail2ban status
-    FAIL2BAN_STATUS="Not installed"
-    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet fail2ban 2>/dev/null; then
-        FAIL2BAN_STATUS="Active"
-    elif command -v fail2ban-client >/dev/null 2>&1; then
-        FAIL2BAN_STATUS="Installed"
-    fi
-    
-    # Output CSV line
-    echo "${HOSTNAME},${FIREWALL_STATUS},${SSH_CONFIG},${ADMIN_GROUPS},${SECURITY_MODULE},${SECURITY_UPDATES},${FAIL2BAN_STATUS}" > "$TEMP_FILE"
-    
-    # Move temp file to final location
-    mv "$TEMP_FILE" "{{ infra_output_path }}/security_{{ inventory_hostname }}.csv"
-  args:
-    executable: /bin/bash
-  register: security_collection_result
-  failed_when: false
-
-- name: "Handle collection errors gracefully"
-  debug:
-    msg: "Warning: Some security data collection commands failed, but continuing with available data"
-  when: security_collection_result.rc != 0
-
-- name: "Fetch security data to controller"
-  fetch:
-    src: "{{ infra_output_path }}/security_{{ inventory_hostname }}.csv"
-    dest: "{{ infra_output_path }}/raw/"
+- name: Fetch users data to controller
+  ansible.builtin.fetch:
+    src: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/users_{{ inventory_hostname }}.csv"
+    dest: "{{ controller_output_path | default('/tmp/infra2csv') }}/raw/"
     flat: yes
-  when: security_collection_result.rc == 0 or security_collection_result.stdout_lines is defined
+  # Only fetch if the module reported collecting entries (i.e., not empty data)
+  when: users_result.entries is defined and users_result.entries > 0
 
-- name: "Cleanup security file on target"
-  file:
-    path: "{{ infra_output_path }}/security_{{ inventory_hostname }}.csv"
+- name: Cleanup users file on target
+  ansible.builtin.file:
+    path: "{{ infra_output_path | default(ansible_env.HOME + '/infra2csv') }}/users_{{ inventory_hostname }}.csv"
     state: absent
-  when: 
-    - infra_cleanup_target | default(false)
-    - security_collection_result.rc == 0 or security_collection_result.stdout_lines is defined
+  when: cleanup_target | default(true)
+  # Similar cleanup considerations as with security_result
+  # when: users_result.rc == 0 and users_result.entries is defined and users_result.entries > 0

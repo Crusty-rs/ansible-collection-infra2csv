@@ -68,26 +68,11 @@ ansible-galaxy collection install crusty_rs.infra2csv
     - crusty_rs.infra2csv.merge_results
 ```
 
-**CLI:**
-```bash
-ansible-playbook -i inventory site.yml
-ansible-playbook -i inventory site.yml -e "controller_output_path=/opt/audit_data"
-ansible-playbook -i inventory site.yml -e "infra_output_path=/var/tmp/collection"
-```
-
-## ✦ Output Formats
-
-```yaml
-- name: Show hardware table
-  crusty_rs.infra2csv.hardware_csv:
-    output_format: table
-```
-
 
 **Example group vars:**
 ```ini
 [databases:vars]
-controller_output_path=/data/db_audit
+output_path=/data/db_audit
 include_system_users=true
 ```
 

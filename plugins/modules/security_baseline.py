@@ -16,8 +16,6 @@ description:
     - Checks SELinux, firewall, SSH, and sudo configuration  
     - Supports CSV and JSON output based on file extension
     - Enhanced error handling for minimal environments
-    - Version 6 with improved compatibility
-version_added: "1.0.0"
 author:
     - yasir hamadi alsahli (@crusty.rusty.engine)
 options:

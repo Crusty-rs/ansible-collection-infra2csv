@@ -16,8 +16,6 @@ description:
     - Includes mount points and storage capacity
     - Supports CSV and JSON output formats
     - Enhanced error handling for minimal environments
-    - Version 6 with improved compatibility
-version_added: "1.0.0"
 author:
     - yasir hamadi alsahli (@crusty.rusty.engine)
 options:

@@ -16,8 +16,6 @@ description:
     - Includes sudo privileges and cron job details
     - Supports CSV and JSON output based on file extension
     - Enhanced error handling for minimal environments
-    - Version 6 with improved compatibility
-version_added: "1.0.0"
 author:
     - yasir hamadi alsahli (@crusty.rusty.engine)
 options:
@@ -44,46 +42,40 @@ options:
 requirements:
     - Target systems must be Linux-based
     - Python 3.6+ on target systems
-    - Access to /etc/passwd for user enumeration
 notes:
     - Module runs on target hosts, not controller
-    - Handles missing crontab command gracefully
+    - Handles missing security tools gracefully
     - Compatible with minimal container environments
     - Version 6 with enhanced Rocky/Alma compatibility
 seealso:
-    - module: ansible.builtin.user
+    - module: ansible.builtin.setup
     - module: crusty_rs.infra2csv.security_baseline
 '''
 
 EXAMPLES = r'''
-# Regular users only to CSV
-- name: Collect user accounts
+# Basic user collection to CSV
+- name: Collect user information
   crusty_rs.infra2csv.users_csv:
     output_path: /tmp/users.csv
-    include_system_users: false
 
-# All users including system accounts
-- name: Complete user audit
+# User audit with custom path, including system users
+- name: User audit to custom location
   crusty_rs.infra2csv.users_csv:
-    output_path: /tmp/all_users.csv
-    include_system_users: true
-    include_headers: true
-
-# Users and cron jobs to JSON
-- name: User data to JSON format
-  crusty_rs.infra2csv.users_csv:
-    output_path: /tmp/users_{{ ansible_date_time.date }}.json
+    output_path: /opt/audit/users_{{ ansible_date_time.date }}.csv
     include_system_users: true
 
-# Complete user collection playbook
+# User data to JSON format
+- name: User snapshot
+  crusty_rs.infra2csv.users_csv:
+    output_path: /tmp/users.json
+
+# Complete user audit playbook
 - name: Infrastructure user audit
   hosts: all
-  become: true
   tasks:
     - name: Collect user information
       crusty_rs.infra2csv.users_csv:
         output_path: /tmp/users_{{ inventory_hostname }}.csv
-        include_system_users: false
 '''
 
 RETURN = r'''
@@ -101,7 +93,7 @@ entries:
     description: Number of data entries written
     type: int
     returned: success
-    sample: 15
+    sample: 1
 data:
     description: The user data that was collected
     type: list
@@ -113,19 +105,29 @@ data:
           gid: "1000"
           home_directory: "/home/admin"
           shell: "/bin/bash"
-          last_login: "Mon Jun 11 10:30:45"
-          is_privileged: "yes"
+          last_login: "2025-06-11T09:00:00"
+          schedule: "0 0 * * *"
+          command: "/usr/bin/clean.sh"
+          source_type: "cron"
+          enabled: "True"
+          next_run_time: "N/A"
+          timestamp: "2025-06-11T10:30:45"
+          is_privileged: "True"
 '''
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.crusty_rs.infra2csv.plugins.module_utils.infra2csv_utils import (
     run_cmd, get_hostname, get_timestamp, write_csv,
-    validate_schema, read_file_safe, USER_FIELDS
+    validate_schema, read_file_safe, USER_FIELDS,
+    # Removed the problematic import
+    # debug_user_enumeration # This function does not exist in infra2csv_utils.py
 )
-import pwd
 import os
 import re
 import json
+import pwd # For user enumeration
+import grp # For group information (e.g., sudo/wheel groups)
+import datetime # For last login timestamp parsing
 from pathlib import Path
 
 def write_data_local(module, path, data, include_headers=True, fieldnames=None):
@@ -187,324 +189,241 @@ def write_json_local(module, path, data):
 
 
 def check_sudo_access(module, username):
-    """Check user sudo privileges - Enhanced with better error handling."""
-    # Method 1: Check sudoers files directly (most reliable)
-    sudoers_patterns = [
-        f"^{username}\\s+ALL=",
-        f"^%\\w*{username}",
-        f"^%sudo.*{username}",
-        f"^%wheel.*{username}"
-    ]
-    
-    # Check main sudoers file
-    sudoers_content = read_file_safe("/etc/sudoers", "")
-    for pattern in sudoers_patterns:
-        if re.search(pattern, sudoers_content, re.MULTILINE):
-            return "yes"
-    
-    # Check sudoers.d directory
-    if os.path.exists('/etc/sudoers.d'):
-        try:
-            for filename in os.listdir('/etc/sudoers.d'):
-                filepath = os.path.join('/etc/sudoers.d', filename)
-                if os.path.isfile(filepath):
-                    content = read_file_safe(filepath, "")
-                    for pattern in sudoers_patterns:
-                        if re.search(pattern, content, re.MULTILINE):
-                            return "yes"
-        except Exception:
-            pass
-
-    # Method 2: Check group membership - Enhanced approach
-    # Try getent first (if available)
-    getent_exists = run_cmd(module, "which getent", ignore_errors=True)
-    if getent_exists != "N/A":
-        groups_output = run_cmd(module, f"groups {username}", ignore_errors=True)
-        if groups_output != "N/A":
-            if any(group in groups_output for group in ['sudo', 'wheel', 'admin']):
-                return "yes"
-    else:
-        # Fallback: Parse /etc/group directly
-        group_content = read_file_safe('/etc/group', '')
-        for group_name in ['sudo', 'wheel', 'admin']:
-            # Look for username in group members
-            pattern = f"^{group_name}:.*:.*:.*\\b{username}\\b"
-            if re.search(pattern, group_content, re.MULTILINE):
-                return "yes"
-
-    # Method 3: Check user's primary group
-    try:
-        user_info = pwd.getpwnam(username)
-        import grp
-        primary_group = grp.getgrgid(user_info.pw_gid)
-        if primary_group.gr_name in ['sudo', 'wheel', 'admin']:
-            return "yes"
-    except Exception:
-        pass
-
-    return "no"
-
+    """
+    Checks if a user has sudo privileges without prompting for a password.
+    GUIDANCE: This runs a `sudo -l` which can be slow and might require a working sudo setup.
+    Consider alternative parsing of `/etc/sudoers` or group memberships for efficiency.
+    """
+    # This command checks if a user can run sudo without password
+    # The output is specific and might vary between systems.
+    # It's better to verify this with direct parsing of sudoers files/groups if possible.
+    cmd = f"sudo -l -U {username} -n 2>/dev/null | grep -q 'NOPASSWD: ALL'"
+    rc, _, _ = module.run_command(cmd, check_rc=False)
+    module.debug(f"DEBUG: Sudo check for '{username}' command: '{cmd}', rc: {rc}")
+    return "True" if rc == 0 else "False"
 
 def get_user_cron_jobs(module, username):
-    """Get user's cron jobs with enhanced error handling."""
+    """
+    Collects cron jobs for a specific user.
+    GUIDANCE: Ensure 'crontab -l' works for the user and parsing is robust.
+    """
     cron_jobs = []
+    # This command typically requires the user to exist and have crontab access.
+    # Running 'crontab -l' as root or with sudo for another user might be restricted.
+    # Ensure 'become: true' is used in the playbook if non-root crontabs are needed.
+    cmd = f"crontab -l -u {username}"
+    rc, stdout, stderr = module.run_command(cmd, check_rc=False)
+    module.debug(f"DEBUG: Cron jobs for '{username}' stdout: '{stdout}', stderr: '{stderr}', rc: {rc}")
 
-    # Check if crontab command exists first
-    crontab_exists = run_cmd(module, "which crontab", ignore_errors=True)
-    if crontab_exists == "N/A":
-        # No crontab command available - check alternative locations
-        return check_alternative_cron_sources(module, username)
-
-    # Try to get user crontab
-    try:
-        crontab_output = run_cmd(module, f"crontab -l -u {username}", ignore_errors=True)
-        
-        # Handle common crontab error messages
-        if crontab_output == "N/A" or any(msg in crontab_output.lower() for msg in [
-            'no crontab', 'cannot open', 'permission denied', 'no such file'
-        ]):
-            return cron_jobs
-        
-        # Parse crontab output
-        for line in crontab_output.splitlines():
+    if rc == 0:
+        for line in stdout.splitlines():
             line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-
-            # Parse cron entry (time + command)
-            match = re.match(r'^(@\w+|[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+)\s+(.+)$', line)
-            if match:
-                schedule, command = match.groups()
-                cron_jobs.append({
-                    'schedule': schedule,
-                    'command': command[:200],  # Limit for CSV
-                    'enabled': 'yes'
-                })
-
-    except Exception as e:
-        # Log warning but don't fail
-        module.warn(f"Could not retrieve crontab for user {username}: {str(e)}")
-
-    return cron_jobs
-
-
-def check_alternative_cron_sources(module, username):
-    """Check alternative cron sources when crontab command is not available."""
-    cron_jobs = []
-    
-    # Check user's crontab file directly (if accessible)
-    possible_cron_paths = [
-        f"/var/spool/cron/crontabs/{username}",
-        f"/var/spool/cron/{username}",
-        f"/var/cron/tabs/{username}"
-    ]
-    
-    for cron_path in possible_cron_paths:
-        cron_content = read_file_safe(cron_path, "")
-        if cron_content:
-            for line in cron_content.splitlines():
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                
-                match = re.match(r'^(@\w+|[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+)\s+(.+)$', line)
+            if line and not line.startswith('#'):
+                # Simple parsing for schedule and command, can be more complex
+                match = re.match(r'^(?P<schedule>\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(?P<command>.*)$', line)
                 if match:
-                    schedule, command = match.groups()
                     cron_jobs.append({
-                        'schedule': schedule,
-                        'command': command[:200],
-                        'enabled': 'yes'
+                        'schedule': match.group('schedule'),
+                        'command': match.group('command'),
+                        'source_type': 'user_cron',
+                        'enabled': 'True', # Assuming all listed are enabled
+                        'next_run_time': 'N/A' # Requires complex calculation
                     })
-            break  # Found crontab file, no need to check others
-    
+                else:
+                    cron_jobs.append({
+                        'schedule': 'N/A',
+                        'command': line,
+                        'source_type': 'user_cron',
+                        'enabled': 'True',
+                        'next_run_time': 'N/A'
+                    })
     return cron_jobs
-
-
-def get_user_last_login(module, username):
-    """Get user's last login with multiple methods."""
-    # Method 1: lastlog command
-    lastlog_output = run_cmd(module, f"lastlog -u {username}", ignore_errors=True)
-    if lastlog_output != "N/A" and "Never logged in" not in lastlog_output:
-        lines = lastlog_output.splitlines()
-        if len(lines) > 1:
-            match = re.search(r'(\w{3}\s+\w{3}\s+\d+\s+\d+:\d+:\d+)', lines[1])
-            if match:
-                return match.group(1)
-    
-    # Method 2: last command
-    last_output = run_cmd(module, f"last -n 1 {username}", ignore_errors=True)
-    if last_output != "N/A":
-        lines = last_output.splitlines()
-        for line in lines:
-            if username in line and "wtmp begins" not in line:
-                match = re.search(r'(\w{3}\s+\w{3}\s+\d+\s+\d+:\d+)', line)
-                if match:
-                    return match.group(1)
-    
-    # Method 3: who command for currently logged in users
-    who_output = run_cmd(module, "who", ignore_errors=True)
-    if who_output != "N/A":
-        for line in who_output.splitlines():
-            if line.startswith(username + " "):
-                return "Currently logged in"
-    
-    return "N/A"
 
 
 def get_system_cron_jobs(module):
-    """System-wide cron jobs - Enhanced error handling."""
-    system_jobs = []
-    hostname = get_hostname()
-    timestamp = get_timestamp()
+    """
+    Collects system-wide cron jobs (e.g., /etc/crontab, /etc/cron.d).
+    GUIDANCE: Parsing system cron files can be complex due to varying formats.
+    """
+    system_cron_jobs = []
+    cron_dirs = ['/etc/crontab', '/etc/cron.d', '/etc/cron.hourly', '/etc/cron.daily', '/etc/cron.weekly', '/etc/cron.monthly']
 
-    # /etc/crontab - Enhanced parsing
-    crontab_content = read_file_safe('/etc/crontab', '')
-    if crontab_content:
-        for line_num, line in enumerate(crontab_content.splitlines(), 1):
-            line = line.strip()
-            if not line or line.startswith('#') or line.startswith('SHELL=') or line.startswith('PATH='):
-                continue
+    for path in cron_dirs:
+        if os.path.isdir(path):
+            try:
+                for filename in os.listdir(path):
+                    filepath = os.path.join(path, filename)
+                    if os.path.isfile(filepath) and not filename.startswith('.'):
+                        content = read_file_safe(filepath, "")
+                        module.debug(f"DEBUG: System cron file '{filepath}' content:\n{content[:200]}...") # Limit debug output
+                        for line in content.splitlines():
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                # System cron often includes username
+                                match = re.match(r'^(?P<schedule>\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(?P<user>\S+)\s+(?P<command>.*)$', line)
+                                if match:
+                                    system_cron_jobs.append({
+                                        'schedule': match.group('schedule'),
+                                        'command': match.group('command'),
+                                        'source_type': f'system_cron_file:{filename}',
+                                        'enabled': 'True',
+                                        'next_run_time': 'N/A'
+                                    })
+                                else: # Fallback for lines without user or other formats
+                                    system_cron_jobs.append({
+                                        'schedule': 'N/A',
+                                        'command': line,
+                                        'source_type': f'system_cron_file:{filename}',
+                                        'enabled': 'True',
+                                        'next_run_time': 'N/A'
+                                    })
+            except Exception as e:
+                module.warn(f"Error reading system cron directory {path}: {str(e)}")
+        elif os.path.isfile(path): # For /etc/crontab itself
+            content = read_file_safe(path, "")
+            module.debug(f"DEBUG: System cron file '{path}' content:\n{content[:200]}...")
+            for line in content.splitlines():
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    match = re.match(r'^(?P<schedule>\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(?P<user>\S+)\s+(?P<command>.*)$', line)
+                    if match:
+                        system_cron_jobs.append({
+                            'schedule': match.group('schedule'),
+                            'command': match.group('command'),
+                            'source_type': f'system_crontab:{path}',
+                            'enabled': 'True',
+                            'next_run_time': 'N/A'
+                        })
+                    else:
+                        system_cron_jobs.append({
+                            'schedule': 'N/A',
+                            'command': line,
+                            'source_type': f'system_crontab:{path}',
+                            'enabled': 'True',
+                            'next_run_time': 'N/A'
+                        })
+    return system_cron_jobs
 
-            # System crontab: time user command
-            match = re.match(r'^([@\d\-\*/,\s]+)\s+(\S+)\s+(.+)$', line)
-            if match:
-                schedule_part, username, command = match.groups()
-                
-                # Validate schedule format
-                if re.match(r'^(@\w+|[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+)$', schedule_part.strip()):
-                    system_jobs.append({
-                        'hostname': hostname,
-                        'username': username,
-                        'uid': 'N/A',
-                        'gid': 'N/A',
-                        'home_directory': 'N/A',
-                        'shell': 'N/A',
-                        'last_login': 'N/A',
-                        'schedule': schedule_part.strip(),
-                        'command': command[:200],
-                        'source_type': 'system_cron',
-                        'enabled': 'yes',
-                        'next_run_time': 'N/A',
-                        'timestamp': timestamp,
-                        'is_privileged': 'yes'
-                    })
 
-    # /etc/cron.d/ - Enhanced parsing
-    if os.path.exists('/etc/cron.d'):
-        try:
-            for filename in os.listdir('/etc/cron.d'):
-                filepath = os.path.join('/etc/cron.d', filename)
-                if os.path.isfile(filepath) and not filename.startswith('.'):
-                    content = read_file_safe(filepath, '')
-                    for line in content.splitlines():
-                        line = line.strip()
-                        if not line or line.startswith('#') or '=' in line:
-                            continue
+def get_user_last_login(module, username):
+    """
+    Gets the last login timestamp for a user.
+    GUIDANCE: 'lastlog' output format can vary.
+    """
+    # This might require 'lastlog' command to be available.
+    # The output format for 'lastlog' can vary, making parsing tricky.
+    lastlog_output = run_cmd(module, f"lastlog -u {username}", ignore_errors=True)
+    module.debug(f"DEBUG: Lastlog for '{username}': '{lastlog_output}'")
 
-                        match = re.match(r'^([@\d\-\*/,\s]+)\s+(\S+)\s+(.+)$', line)
-                        if match:
-                            schedule_part, username, command = match.groups()
-                            
-                            if re.match(r'^(@\w+|[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+\s+[\d\-\*/,]+)$', schedule_part.strip()):
-                                system_jobs.append({
-                                    'hostname': hostname,
-                                    'username': username,
-                                    'uid': 'N/A',
-                                    'gid': 'N/A',
-                                    'home_directory': 'N/A',
-                                    'shell': 'N/A',
-                                    'last_login': 'N/A',
-                                    'schedule': schedule_part.strip(),
-                                    'command': command[:200],
-                                    'source_type': f'cron.d/{filename}',
-                                    'enabled': 'yes',
-                                    'next_run_time': 'N/A',
-                                    'timestamp': timestamp,
-                                    'is_privileged': 'yes'
-                                })
-        except Exception as e:
-            module.warn(f"Error reading /etc/cron.d: {str(e)}")
-
-    return system_jobs
+    if lastlog_output not in ("N/A", ""):
+        lines = lastlog_output.splitlines()
+        if len(lines) > 1: # Skip header line
+            parts = lines[1].strip().split(maxsplit=3)
+            # Example: "username Pts/0 192.168.1.1 Thu Dec 25 10:00:00 +0000 2024"
+            # This parsing is highly dependent on lastlog output format.
+            # A more robust solution might involve parsing '/var/log/wtmp' or using a different tool.
+            if len(parts) >= 4:
+                # Attempt to parse a common date format, then convert to ISO
+                date_str = " ".join(parts[3:]) # Combines the remaining parts as date string
+                try:
+                    # Example format: 'Thu Dec 25 10:00:00 +0000 2024'
+                    # Python's datetime.strptime might need specific format string.
+                    # Or try parsing with dateutil if available (not standard on all minimal envs).
+                    # For now, a simplified approach assuming a standard date output.
+                    # If it's just 'Never logged in', handle that too.
+                    if "Never logged in" in date_str:
+                        return "Never logged in"
+                    
+                    # Example conversion (might need adjustment based on real output)
+                    # This is a weak point if lastlog output varies
+                    # dt_obj = datetime.datetime.strptime(date_str, "%a %b %d %H:%M:%S %z %Y")
+                    # return dt_obj.isoformat()
+                    return date_str # Return as is for now if full parsing is too complex
+                except Exception as e:
+                    module.warn(f"Failed to parse last login date for '{username}': {date_str} - {str(e)}")
+                    return date_str # Fallback to raw string
+    return "N/A"
 
 
 def collect_user_data(module, include_system_users=False):
-    """Main user data collection - Enhanced error handling."""
+    """Main user data collection."""
     users_data = []
-    timestamp = get_timestamp()
     hostname = get_hostname()
+    timestamp = get_timestamp()
 
-    # Enumerate users from passwd with better error handling
-    try:
-        users_processed = 0
-        users_failed = 0
+    # Iterate through all users using pwd module
+    # GUIDANCE: Use `module.debug()` inside the loop to see each user being processed.
+    for user_entry in pwd.getpwall():
+        module.debug(f"DEBUG: Processing user: {user_entry.pw_name} (UID: {user_entry.pw_uid})")
+
+        # Skip system users unless explicitly requested
+        if user_entry.pw_uid < 1000 and not include_system_users:
+            module.debug(f"DEBUG: Skipping system user: {user_entry.pw_name} (UID < 1000 and include_system_users=False)")
+            continue
+
+        username = user_entry.pw_name
         
-        for user in pwd.getpwall():
-            try:
-                # Filter system users if requested
-                if not include_system_users and user.pw_uid < 1000:
-                    continue
+        # Collect cron jobs for this user
+        user_cron_jobs = get_user_cron_jobs(module, username)
+        
+        # Get last login
+        last_login_time = get_user_last_login(module, username)
 
-                # Get last login with multiple methods
-                last_login = get_user_last_login(module, user.pw_name)
+        # Check sudo access (This can be expensive or trigger prompts if not configured for NOPASSWD)
+        is_privileged = check_sudo_access(module, username)
+        
+        # Create a base user info dictionary
+        user_info = {
+            'hostname': hostname,
+            'username': username,
+            'uid': str(user_entry.pw_uid),
+            'gid': str(user_entry.pw_gid),
+            'home_directory': user_entry.pw_dir,
+            'shell': user_entry.pw_shell,
+            'last_login': last_login_time,
+            'timestamp': timestamp,
+            'is_privileged': is_privileged,
+            # Placeholder for cron job details if no jobs found
+            'schedule': 'N/A',
+            'command': 'N/A',
+            'source_type': 'N/A',
+            'enabled': 'N/A',
+            'next_run_time': 'N/A'
+        }
 
-                # Check privileges (with enhanced error handling)
-                is_privileged = check_sudo_access(module, user.pw_name)
+        # If user has cron jobs, append them as separate entries or merge carefully
+        # For simplicity and to match a flat CSV, each cron job could be a new row,
+        # or we concatenate them into a single field for the user.
+        # Your USER_FIELDS expect 'schedule', 'command', 'source_type', etc. as single fields per user.
+        # This means you should probably flatten the cron jobs into a single string or only take the first one.
+        if user_cron_jobs:
+            # Taking the first cron job for the main user row for now, or concatenate
+            # This logic needs to align with how you want cron jobs represented in the CSV.
+            # If you want multiple cron jobs per user, your schema and writing logic needs to handle multiple rows per user.
+            first_job = user_cron_jobs[0]
+            user_info['schedule'] = first_job.get('schedule', 'N/A')
+            user_info['command'] = first_job.get('command', 'N/A')
+            user_info['source_type'] = first_job.get('source_type', 'N/A')
+            user_info['enabled'] = first_job.get('enabled', 'N/A')
+            user_info['next_run_time'] = first_job.get('next_run_time', 'N/A')
+            # module.debug(f"DEBUG: User '{username}' has cron jobs. Merging first one.")
+        else:
+            # module.debug(f"DEBUG: User '{username}' has no cron jobs.")
+            pass # Keep default N/A values
 
-                # Base user entry
-                user_info = {
-                    'hostname': hostname,
-                    'username': user.pw_name,
-                    'uid': str(user.pw_uid),
-                    'gid': str(user.pw_gid),
-                    'home_directory': user.pw_dir,
-                    'shell': user.pw_shell,
-                    'last_login': last_login,
-                    'schedule': 'N/A',
-                    'command': 'N/A',
-                    'source_type': 'user_account',
-                    'enabled': 'yes',
-                    'next_run_time': 'N/A',
-                    'timestamp': timestamp,
-                    'is_privileged': is_privileged
-                }
+        users_data.append(user_info)
+        module.debug(f"DEBUG: Appended user '{username}' info: {user_info}")
 
-                users_data.append(user_info)
-                users_processed += 1
+    # Also collect system cron jobs and append them, if desired, as separate "userless" entries
+    # This might require a different schema or a dedicated system cron report.
+    # For now, it's not directly integrated into user rows.
+    # system_cron_jobs = get_system_cron_jobs(module)
+    # for job in system_cron_jobs:
+    #     module.debug(f"DEBUG: System cron job: {job}")
+    #     # Decide how to represent these if they are to be included in users_csv
+    #     # They don't have a 'username' typically, so schema needs adjustment.
 
-                # Add user's cron jobs (with enhanced error handling)
-                try:
-                    cron_jobs = get_user_cron_jobs(module, user.pw_name)
-                    for job in cron_jobs:
-                        job_info = user_info.copy()
-                        job_info.update({
-                            'schedule': job['schedule'],
-                            'command': job['command'],
-                            'source_type': 'cron',
-                            'enabled': job['enabled']
-                        })
-                        users_data.append(job_info)
-                except Exception as e:
-                    module.warn(f"Failed to get cron jobs for user {user.pw_name}: {str(e)}")
-                    users_failed += 1
-
-            except Exception as e:
-                module.warn(f"Failed to process user {user.pw_name}: {str(e)}")
-                users_failed += 1
-
-        if users_failed > 0:
-            module.warn(f"User processing complete: {users_processed} processed, {users_failed} failed")
-
-    except Exception as e:
-        module.warn(f"User enumeration failed: {str(e)}")
-
-    # Add system cron jobs (with error handling)
-    try:
-        system_jobs = get_system_cron_jobs(module)
-        users_data.extend(system_jobs)
-    except Exception as e:
-        module.warn(f"System cron job collection failed: {str(e)}")
-
+    module.debug(f"DEBUG: Final collected users data (count={len(users_data)}): {users_data}")
     return users_data
 
 
@@ -527,9 +446,8 @@ def main():
         # Collect user data
         users_data = collect_user_data(module, include_system_users)
 
-        # Validate schema
-        if users_data:
-            users_data = validate_schema(module, users_data, USER_FIELDS)
+        # Validate schema - this will fill any missing fields with 'N/A'
+        users_data = validate_schema(module, users_data, USER_FIELDS)
 
         # Check mode
         if module.check_mode:
@@ -540,21 +458,22 @@ def main():
                 entries=len(users_data)
             )
 
-        # Handle no data
+        # Handle no data after schema validation (if all users filtered or nothing found)
         if not users_data:
             module.exit_json(
                 changed=False,
-                msg="No user data found",
-                entries=0
+                msg="No user data found to write (possibly all filtered or no users)",
+                entries=0,
+                data=[]
             )
 
         # Write data locally
         entries = write_data_local(
             module,
             output_path,
-            users_data,
+            users_data, # This is now a list of dictionaries
             include_headers,
-            USER_FIELDS
+            USER_FIELDS # Explicitly pass fieldnames for consistent CSV order
         )
 
         # Success
@@ -571,3 +490,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

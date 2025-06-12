@@ -5,7 +5,7 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 """
-Enhanced Infrastructure Data Collection Utilities - Version 6
+Enhanced Infrastructure Data Collection Utilities - Version 1.0.0 Final
 Copyright (c) 2025 Yasir Hamadi Alsahli <crusty.rusty.engine@gmail.com>
 
 Shared utilities for robust cross-platform data collection.
@@ -23,7 +23,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-# CSV Schema definitions
+# CSV Schema definitions - Ordered to match data structure
 HARDWARE_FIELDS = [
     'hostname', 'cpu_cores', 'cpu_model', 'memory_total_gb', 
     'memory_available_gb', 'architecture', 'kernel_version', 'timestamp'
@@ -112,6 +112,13 @@ def run_cmd(module, command, use_shell=False, ignore_errors=False, timeout=30):
         Command output or 'N/A' if failed and ignore_errors=True
     """
     try:
+        # Validate inputs
+        if not command:
+            if ignore_errors:
+                return "N/A"
+            else:
+                module.fail_json(msg="Empty command provided")
+
         # Parse command
         if isinstance(command, str):
             if use_shell:
@@ -124,11 +131,13 @@ def run_cmd(module, command, use_shell=False, ignore_errors=False, timeout=30):
         # Check if base command exists (for non-shell commands)
         if not use_shell and isinstance(cmd_args, list) and cmd_args:
             base_cmd = cmd_args[0]
-            if not command_exists(base_cmd):
-                if ignore_errors:
-                    return "N/A"
-                else:
-                    module.fail_json(msg=f"Command not found: {base_cmd}")
+            # Skip checking for built-in shell commands
+            if base_cmd not in ['cd', 'pwd', 'echo', 'export']:
+                if not command_exists(base_cmd):
+                    if ignore_errors:
+                        return "N/A"
+                    else:
+                        module.fail_json(msg=f"Command not found: {base_cmd}")
 
         # Execute command
         result = subprocess.run(

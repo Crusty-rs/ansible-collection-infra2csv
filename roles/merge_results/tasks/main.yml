@@ -1,7 +1,7 @@
----
 # Merge Results Role - Controller Only
+
 - name: Ensure controller output directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ controller_output_path | default('/tmp/infra2csv') }}"
     state: directory
     mode: '0755'
@@ -9,8 +9,8 @@
   become: false
   run_once: true
 
-- name: Ensure raw directory exists
-  file:
+- name: Ensure raw directory exists for per-host files
+  ansible.builtin.file:
     path: "{{ controller_output_path | default('/tmp/infra2csv') }}/raw"
     state: directory
     mode: '0755'
@@ -18,35 +18,45 @@
   become: false
   run_once: true
 
-- name: Merge hardware data with headers
-  shell: |
-    echo "hostname,ip,os,os_version,arch,cpu,ram_gb,uptime_sec,boot_time,serial_number,model,cpu_cores,cpu_threads,disk_total_gb,user_count,run_by,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/hardware.csv
+- name: Merge hardware data with correct headers
+  # Headers based on HARDWARE_FIELDS in infra2csv_utils.py
+  ansible.builtin.shell: |
+    # Ensure the target file is clean before adding header and data
+    rm -f {{ controller_output_path | default('/tmp/infra2csv') }}/hardware.csv
+    echo "hostname,cpu_cores,cpu_model,memory_total_gb,memory_available_gb,architecture,kernel_version,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/hardware.csv
     cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/hardware_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/hardware.csv 2>/dev/null || true
   delegate_to: localhost
   become: false
   run_once: true
   when: merge_hardware | default(true)
 
-- name: Merge network data with headers
-  shell: |
-    echo "interface,mac_address,state,speed_mbps,mtu,hostname,run_by,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/network.csv
+- name: Merge network data with correct headers
+  # Headers based on NETWORK_FIELDS in infra2csv_utils.py
+  ansible.builtin.shell: |
+    rm -f {{ controller_output_path | default('/tmp/infra2csv') }}/network.csv
+    echo "hostname,interface,ip_address,network_mask,gateway,dns_servers,mac_address,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/network.csv
     cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/network_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/network.csv 2>/dev/null || true
   delegate_to: localhost
   become: false
   run_once: true
   when: merge_network | default(true)
 
-- name: Merge storage data with headers
-  shell: |
-    echo "mode,device,type,size,used,avail,use_percent,mountpoint,hostname,run_by,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/storage.csv
+- name: Merge storage data with correct headers
+  # Headers based on STORAGE_FIELDS in infra2csv_utils.py
+  ansible.builtin.shell: |
+    rm -f {{ controller_output_path | default('/tmp/infra2csv') }}/storage.csv
+    echo "hostname,device,mount_point,filesystem_type,total_size_gb,used_size_gb,available_size_gb,usage_percent,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/storage.csv
     cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/storage_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/storage.csv 2>/dev/null || true
   delegate_to: localhost
   become: false
   run_once: true
   when: merge_storage | default(true)
 
-- name: Merge users data with headers
-  shell: |
+- name: Merge users data with correct headers
+  # Headers based on USER_FIELDS in infra2csv_utils.py
+  # This header was already correct in your original playbook!
+  ansible.builtin.shell: |
+    rm -f {{ controller_output_path | default('/tmp/infra2csv') }}/users.csv
     echo "hostname,username,uid,gid,home_directory,shell,last_login,schedule,command,source_type,enabled,next_run_time,timestamp,is_privileged" > {{ controller_output_path | default('/tmp/infra2csv') }}/users.csv
     cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/users_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/users.csv 2>/dev/null || true
   delegate_to: localhost
@@ -54,8 +64,11 @@
   run_once: true
   when: merge_users | default(true)
 
-- name: Merge security data with headers
-  shell: |
+- name: Merge security data with correct headers
+  # Headers based on SECURITY_FIELDS in infra2csv_utils.py
+  # This header was already correct in your original playbook!
+  ansible.builtin.shell: |
+    rm -f {{ controller_output_path | default('/tmp/infra2csv') }}/security.csv
     echo "hostname,selinux_status,firewalld_status,ssh_root_login,password_auth_status,users_with_sudo,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/security.csv
     cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/security_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/security.csv 2>/dev/null || true
   delegate_to: localhost
@@ -63,9 +76,11 @@
   run_once: true
   when: merge_security | default(true)
 
-- name: Merge filesystem data with headers
-  shell: |
-    echo "hostname,mountpoint,fsck_required,last_fsck,last_fsck_result,filesystem_type,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/filesystem.csv
+- name: Merge filesystem data with correct headers (inode info)
+  # Headers based on FILESYSTEM_FIELDS in infra2csv_utils.py for inode data
+  ansible.builtin.shell: |
+    rm -f {{ controller_output_path | default('/tmp/infra2csv') }}/filesystem.csv
+    echo "hostname,filesystem,mount_point,type,total_inodes,used_inodes,free_inodes,inode_usage_percent,timestamp" > {{ controller_output_path | default('/tmp/infra2csv') }}/filesystem.csv
     cat {{ controller_output_path | default('/tmp/infra2csv') }}/raw/filesystem_*.csv >> {{ controller_output_path | default('/tmp/infra2csv') }}/filesystem.csv 2>/dev/null || true
   delegate_to: localhost
   become: false
@@ -73,14 +88,14 @@
   when: merge_filesystem | default(true)
 
 - name: Cleanup raw files
-  shell: rm -rf {{ controller_output_path | default('/tmp/infra2csv') }}/raw/
+  ansible.builtin.shell: rm -rf {{ controller_output_path | default('/tmp/infra2csv') }}/raw/
   delegate_to: localhost
   become: false
   run_once: true
   when: cleanup_raw_files | default(true)
 
 - name: Display results location
-  debug:
+  ansible.builtin.debug:
     msg: "Infrastructure data collected at {{ controller_output_path | default('/tmp/infra2csv') }}/"
   delegate_to: localhost
   run_once: true
